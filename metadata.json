@@ -1,0 +1,6 @@
+{
+  "name": "StudyMind AI",
+  "description": "A complete production-ready AI-powered learning platform where users can create accounts, log in securely, save learning materials, generate AI study resources, track progress, and access all learning history from any device.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- PWA & Application Identity Meta Tags -->
+    <title>StudyMind AI - Elite Socratic Study Platform</title>
+    <meta name="description" content="An elite AI-powered Socratic study companion with active spacing index curation" />
+    <meta name="theme-color" content="#2563EB" />
+    
+    <!-- Icons & Manifest -->
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- iOS support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="StudyMind AI" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- PWA Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+              console.log('StudyMind AI Service Worker registered successfully: ', registration.scope);
+            })
+            .catch((error) => {
+              console.warn('StudyMind AI Service Worker registration failed: ', error);
+            });
+        });
+      }
+    </script>
+  </body>
+</html>
+
