@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { safeStorage, safeSessionStorage } from './utils/safeStorage';
 import { 
   GraduationCap, 
   Layers, 
@@ -157,11 +158,11 @@ export default function App() {
 
   // Initialize theme and sessions on component launch
   useEffect(() => {
-    const savedTheme = localStorage.getItem('studymind_theme') || 'dark';
+    const savedTheme = safeStorage.getItem('studymind_theme') || 'dark';
     setTheme(savedTheme as any);
     document.documentElement.classList.toggle('light', savedTheme === 'light');
 
-    const uid = localStorage.getItem('studymind_userId') || sessionStorage.getItem('studymind_userId');
+    const uid = safeStorage.getItem('studymind_userId') || safeSessionStorage.getItem('studymind_userId');
     if (uid) {
       resolveUserSession(uid);
     }
@@ -198,7 +199,7 @@ export default function App() {
 
   // Auth fetch wrapping helper
   const authFetch = async (url: string, options: any = {}) => {
-    const token = localStorage.getItem('studymind_userId') || sessionStorage.getItem('studymind_userId') || '';
+    const token = safeStorage.getItem('studymind_userId') || safeSessionStorage.getItem('studymind_userId') || '';
     const headers = {
       'Content-Type': 'application/json',
       ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -228,7 +229,7 @@ export default function App() {
   };
 
   const syncUserSpecificData = async () => {
-    const token = localStorage.getItem('studymind_userId') || sessionStorage.getItem('studymind_userId') || '';
+    const token = safeStorage.getItem('studymind_userId') || safeSessionStorage.getItem('studymind_userId') || '';
     if (!token) {
       return;
     }
@@ -254,8 +255,8 @@ export default function App() {
   };
 
   const clearCredentials = () => {
-    localStorage.removeItem('studymind_userId');
-    sessionStorage.removeItem('studymind_userId');
+    safeStorage.removeItem('studymind_userId');
+    safeSessionStorage.removeItem('studymind_userId');
     setUser(null);
     setActiveTab('welcome');
     setActiveMaterial(null);
@@ -279,7 +280,7 @@ export default function App() {
   const handleThemeToggle = () => {
     const target = theme === 'dark' ? 'light' : 'dark';
     setTheme(target);
-    localStorage.setItem('studymind_theme', target);
+    safeStorage.setItem('studymind_theme', target);
     document.documentElement.classList.toggle('light', target === 'light');
   };
 

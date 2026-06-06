@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { safeStorage, safeSessionStorage } from './utils/safeStorage';
 import { 
   X, 
   Mail, 
@@ -66,9 +67,9 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
         
         // Save user's session token securely
         if (rememberMe) {
-          localStorage.setItem('studymind_userId', data.user.uid);
+          safeStorage.setItem('studymind_userId', data.user.uid);
         } else {
-          sessionStorage.setItem('studymind_userId', data.user.uid);
+          safeSessionStorage.setItem('studymind_userId', data.user.uid);
         }
 
         setTimeout(() => {
@@ -93,9 +94,9 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
 
         setSuccessMsg('Sign in successful! Syncing learning states...');
         if (rememberMe) {
-          localStorage.setItem('studymind_userId', data.user.uid);
+          safeStorage.setItem('studymind_userId', data.user.uid);
         } else {
-          sessionStorage.setItem('studymind_userId', data.user.uid);
+          safeSessionStorage.setItem('studymind_userId', data.user.uid);
         }
         setTimeout(() => {
           onSuccess(data.user);
@@ -157,7 +158,7 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
         }
 
         setSuccessMsg(`Google account (${simEmail}) linked successfully! Syncing research states...`);
-        localStorage.setItem('studymind_userId', data.user.uid);
+        safeStorage.setItem('studymind_userId', data.user.uid);
         
         setTimeout(() => {
           onSuccess(data.user);
