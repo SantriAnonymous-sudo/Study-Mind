@@ -4,6 +4,7 @@
  */
 
 import { UserProfile, Subject, LearningMaterial, LearningHistory, Flashcard, Quiz, AISummary, AIExplanation, AIMindMap } from '../types';
+import { safeStorage } from './safeStorage';
 
 // Storage Key Constants
 const USERS_KEY = 'studymind_local_users';
@@ -20,7 +21,7 @@ const CHATS_KEY = 'studymind_local_chats';
 // Helper: safe JSON parsing
 const getLocalJSON = <T>(key: string, defaultValue: T): T => {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = safeStorage.getItem(key);
     if (!raw) return defaultValue;
     return JSON.parse(raw) as T;
   } catch (e) {
@@ -29,7 +30,11 @@ const getLocalJSON = <T>(key: string, defaultValue: T): T => {
 };
 
 const setLocalJSON = (key: string, data: any): void => {
-  localStorage.setItem(key, JSON.stringify(data));
+  try {
+    safeStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    console.warn('Failed to persist client database JSON state:', e);
+  }
 };
 
 // Seed admin profile and pre-populate if empty
@@ -332,8 +337,14 @@ export async function handleLocalDbRequest(urlString: string, init?: RequestInit
   // Extract token from request headers (typically Bearer uid)
   let authUserId = 'user-admin-munggiz'; 
   if (init?.headers) {
-    const headersObj = init.headers as Record<string, string>;
-    const authHeader = headersObj['Authorization'] || headersObj['authorization'] || '';
+    let authHeader = '';
+    const headersAny = init.headers as any;
+    if (typeof headersAny.get === 'function') {
+      authHeader = headersAny.get('Authorization') || headersAny.get('authorization') || '';
+    } else {
+      const headersObj = init.headers as Record<string, string>;
+      authHeader = headersObj['Authorization'] || headersObj['authorization'] || '';
+    }
     if (authHeader.startsWith('Bearer ')) {
       authUserId = authHeader.substring(7).trim();
     }
