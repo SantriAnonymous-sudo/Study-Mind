@@ -162,8 +162,17 @@ app.get('/api/auth/me', requireAuth, (req: Request, res: Response) => {
 app.post('/api/auth/profile', requireAuth, (req: Request, res: Response) => {
   try {
     const userId = req.body.authenticatedUserId;
-    const { fullName, email, profilePhoto } = req.body;
-    const updated = DB.updateUserProfile(userId, { fullName, email, profilePhoto });
+    const { fullName, email, profilePhoto, brainModel, brainPersona, brainLanguage, brainCreativity, brainCustomRules } = req.body;
+    const updated = DB.updateUserProfile(userId, { 
+      fullName, 
+      email, 
+      profilePhoto,
+      brainModel,
+      brainPersona,
+      brainLanguage,
+      brainCreativity: brainCreativity !== undefined ? Number(brainCreativity) : undefined,
+      brainCustomRules
+    });
     res.json({ message: 'Profile updated successfully!', user: updated });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -383,17 +392,28 @@ app.post('/api/ai/summary', requireAuth, async (req: Request, res: Response) => 
       return res.json({ summary: previous });
     }
 
+    const user = DB.getUserByUid(userId);
+    const model = user?.brainModel || 'gemini-3.5-flash';
+    const language = user?.brainLanguage || 'Bahasa Indonesia';
+    const customRules = user?.brainCustomRules || '';
+    const creativity = user?.brainCreativity !== undefined ? Number(user.brainCreativity) : 1.0;
+
     const ai = getAI();
     const prompt = `Perform an elite ${type} academic study summary of the text provided below. 
 Highlight the fundamental concepts, definitions, paradigms, and crucial takeaways. 
 Keep the format elegant with Markdown title headers, bullet points, and clean syntax.
+Please write all summary content in this language: "${language}".
+${customRules ? `Additional guidelines: ${customRules}` : ''}
 
 TEXT TO SUMMARIZE:
 ${mat.content}`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: model,
       contents: prompt,
+      config: {
+        temperature: creativity
+      }
     });
 
     const aiText = response.text || 'Failed to capture summarize parameters.';
@@ -425,16 +445,27 @@ app.post('/api/ai/explanation', requireAuth, async (req: Request, res: Response)
       return res.json({ explanation: previous });
     }
 
+    const user = DB.getUserByUid(userId);
+    const model = user?.brainModel || 'gemini-3.5-flash';
+    const language = user?.brainLanguage || 'Bahasa Indonesia';
+    const customRules = user?.brainCustomRules || '';
+    const creativity = user?.brainCreativity !== undefined ? Number(user.brainCreativity) : 1.0;
+
     const ai = getAI();
     const prompt = `Break down and explain the key elements of the material text below for a learner at the "${difficulty.toUpperCase()}" level of cognitive understanding.
 Choose explanations, terminology, mental frameworks, analogies, and pacing perfectly suited to this requested level. Use Markdown formatting.
+Please write the complete explanation in this language: "${language}".
+${customRules ? `Additional guidelines: ${customRules}` : ''}
 
 STUDY MATERIAL CONTENT:
 ${mat.content}`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: model,
       contents: prompt,
+      config: {
+        temperature: creativity
+      }
     });
 
     const aiText = response.text || `Could not resolve explanation block for ${difficulty} level.`;
@@ -466,12 +497,19 @@ app.post('/api/ai/mindmap', requireAuth, async (req: Request, res: Response) => 
       return res.json({ mindmap: previous[0] });
     }
 
+    const user = DB.getUserByUid(userId);
+    const model = user?.brainModel || 'gemini-3.5-flash';
+    const language = user?.brainLanguage || 'Bahasa Indonesia';
+    const customRules = user?.brainCustomRules || '';
+
     const ai = getAI();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: model,
       contents: `Directly synthesize the core structural skeleton of the study notes content below into a hierarchical mind-map JSON format. 
 Each branch node should have an "id" (string), "label" (string), "description" (optional string), and "children" (array of nodes).
 The tree must start from a single root node representing the master topic. Use the JSON schema explicitly.
+Write the node labels and descriptions in this language: "${language}".
+${customRules ? `Additional guidelines: ${customRules}` : ''}
 
 CONTENT TO MAP:
 ${mat.content}`,
@@ -548,11 +586,18 @@ app.post('/api/ai/flashcards', requireAuth, async (req: Request, res: Response) 
       return res.json({ flashcards: previous });
     }
 
+    const user = DB.getUserByUid(userId);
+    const model = user?.brainModel || 'gemini-3.5-flash';
+    const language = user?.brainLanguage || 'Bahasa Indonesia';
+    const customRules = user?.brainCustomRules || '';
+
     const ai = getAI();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: model,
       contents: `Analyze the material content below and extract 6 high-value review flashcards consisting of core questions and descriptive, direct answers to optimize retention. 
 Return structured JSON schema as requested.
+Please write all flashcard questions and answers in this language: "${language}".
+${customRules ? `Additional guidelines: ${customRules}` : ''}
 
 CONTENT DATA:
 ${mat.content}`,
@@ -602,15 +647,22 @@ app.post('/api/ai/quiz', requireAuth, async (req: Request, res: Response) => {
       return res.json({ quiz: existingQuiz });
     }
 
+    const user = DB.getUserByUid(userId);
+    const model = user?.brainModel || 'gemini-3.5-flash';
+    const language = user?.brainLanguage || 'Bahasa Indonesia';
+    const customRules = user?.brainCustomRules || '';
+
     const ai = getAI();
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: model,
       contents: `Synthesize a rigorous, highly-informative 5-question exam quiz based on learning content provided.
 Include exactly:
 - 3 Multiple Choice questions (with 4 clean options tagged A, B, C, D)
 - 1 True/False question
 - 1 Essay conceptual inquiry question (where the correct answer should explain the ideal assessment rubric/criteria to match against for manual scoring)
 Provide the response strictly in JSON layout.
+Please write all exam questions, options, and grading rubrics in this language: "${language}".
+${customRules ? `Additional guidelines: ${customRules}` : ''}
 
 LEARNING SUBJECT CONTENT:
 ${mat.content}`,
@@ -688,8 +740,12 @@ app.post('/api/ai/quiz-results', requireAuth, async (req: Request, res: Response
           explanation: isCorrect ? 'Spot on!' : `The correct answer was designated as "${q.correctAnswer}".`
         });
       } else if (q.type === 'essay') {
-        // Evaluate essay using Gemini 3.5-flash
+        // Evaluate essay using customization
         try {
+          const user = DB.getUserByUid(userId);
+          const model = user?.brainModel || 'gemini-3.5-flash';
+          const language = user?.brainLanguage || 'Bahasa Indonesia';
+
           const gradingPrompt = `You are a strict, helpful university academic grader. 
 Verify the student's essay answer below against the ideal grading rubric:
 
@@ -704,10 +760,10 @@ STUDENT ANSWER EXCERPT:
 
 Provide your feedback and grade strictly in JSON format. Return:
 "score" (percentage score integer from 0 to 100 on how accurately they covered the key terms of the rubric)
-"assessmentAdvice" (string explaining strengths, weaknesses, and what elements they missed).`;
+"assessmentAdvice" (string explaining strengths, weaknesses, and what elements they missed. Write the assessmentAdvice explanation in this language: "${language}").`;
 
           const gradingResp = await ai.models.generateContent({
-            model: 'gemini-3.5-flash',
+            model: model,
             contents: gradingPrompt,
             config: {
               responseMimeType: 'application/json',
@@ -788,11 +844,18 @@ app.post('/api/tutor/chat/:materialId', requireAuth, async (req: Request, res: R
     const currentChat = DB.getTutorChats(userId, materialId);
     const lastSixTurns = currentChat.conversation.slice(-8);
 
+    const user = DB.getUserByUid(userId);
+    const model = user?.brainModel || 'gemini-3.5-flash';
+    const persona = user?.brainPersona || 'Socratic Mentor';
+    const language = user?.brainLanguage || 'Bahasa Indonesia';
+    const customRules = user?.brainCustomRules || '';
+    const creativity = user?.brainCreativity !== undefined ? Number(user.brainCreativity) : 1.0;
+
     // Compile message pipeline context for Gemini
     const ai = getAI();
     let historyContext = lastSixTurns.map(m => `${m.sender.toUpperCase()}: ${m.text}`).join('\n');
 
-    const prompt = `You are a world-class, polite, and deeply encouraging AI Socratic Tutor.
+    const prompt = `You are a world-class, polite, and deeply encouraging AI Learning Advisor with the following special persona: "${persona}".
 Your focus is exclusive to helping the user master their uploaded study material, explained below:
 
 ===================================
@@ -800,7 +863,10 @@ UPLOADED STUDENT NOTE CONTEXT:
 ${mat.content}
 ===================================
 
-Analyze their question within the learning history log below. Encourage deep thinking, formulate clear examples, break down hard formulas, simplify complex structures, and occasionally prompt self-testing queries to verify structural mastery.
+Analyze their question within the learning history log below. Frame explanations, analogies, tone of voice, pacing, and interaction style precisely according to your assigned persona. Keep explanations highly educational and interactive.
+
+Please communicate and write explanations in this language: "${language}".
+${customRules ? `Additional guidelines: ${customRules}` : ''}
 
 PREVIOUS LOG CHAT MEMORY:
 ${historyContext}
@@ -808,8 +874,11 @@ ${historyContext}
 Provide your academic tutor response directly in Markdown format:`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: model,
       contents: prompt,
+      config: {
+        temperature: creativity
+      }
     });
 
     const aiAnswerText = response.text || 'I was unable to synthesize a response at this time. Please prompt again.';

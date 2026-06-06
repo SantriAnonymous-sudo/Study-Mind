@@ -15,6 +15,11 @@ export interface UserProfile {
   lastActiveDate?: string; // ISO string YYYY-MM-DD
   joinDate: string; // ISO string
   role: 'student' | 'admin';
+  brainModel?: string;
+  brainPersona?: string;
+  brainLanguage?: string;
+  brainCreativity?: number;
+  brainCustomRules?: string;
 }
 
 // Subject definition

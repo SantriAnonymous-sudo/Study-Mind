@@ -146,6 +146,15 @@ export default function App() {
   // System Loading global spinner
   const [globalLoading, setGlobalLoading] = useState(false);
 
+  // AI Brain customization fields
+  const [profileName, setProfileName] = useState('');
+  const [brainModel, setBrainModel] = useState('gemini-3.5-flash');
+  const [brainPersona, setBrainPersona] = useState('Socratic Mentor');
+  const [brainLanguage, setBrainLanguage] = useState('Bahasa Indonesia');
+  const [brainCreativity, setBrainCreativity] = useState(1.0);
+  const [brainCustomRules, setBrainCustomRules] = useState('');
+  const [savingBrainSettings, setSavingBrainSettings] = useState(false);
+
   // Initialize theme and sessions on component launch
   useEffect(() => {
     const savedTheme = localStorage.getItem('studymind_theme') || 'dark';
@@ -157,6 +166,18 @@ export default function App() {
       resolveUserSession(uid);
     }
   }, []);
+
+  // Update form inputs when user updates
+  useEffect(() => {
+    if (user) {
+      setProfileName(user.fullName || '');
+      setBrainModel(user.brainModel || 'gemini-3.5-flash');
+      setBrainPersona(user.brainPersona || 'Socratic Mentor');
+      setBrainLanguage(user.brainLanguage || 'Bahasa Indonesia');
+      setBrainCreativity(user.brainCreativity !== undefined ? user.brainCreativity : 1.0);
+      setBrainCustomRules(user.brainCustomRules || '');
+    }
+  }, [user]);
 
   // Timer loop for practice quizzes
   useEffect(() => {
@@ -630,6 +651,33 @@ export default function App() {
       triggerNotification('User directory purged safely.');
     } catch (e: any) {
       triggerErrorNotification(e.message || 'Purge failed.');
+    }
+  };
+
+
+  const handleSaveBrainSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSavingBrainSettings(true);
+      const res = await authFetch('/api/auth/profile', {
+        method: 'POST',
+        body: JSON.stringify({
+          fullName: profileName,
+          email: user?.email,
+          profilePhoto: user?.profilePhoto,
+          brainModel,
+          brainPersona,
+          brainLanguage,
+          brainCreativity,
+          brainCustomRules
+        })
+      });
+      setUser(res.user);
+      triggerNotification('Konfigurasi Otak AI & profil Anda berhasil disimpan secara aman!');
+    } catch (err: any) {
+      triggerErrorNotification(err.message || 'Gagal menyimpan konfigurasi.');
+    } finally {
+      setSavingBrainSettings(false);
     }
   };
 
@@ -2076,6 +2124,107 @@ export default function App() {
                           />
                         </div>
                       </div>
+
+                      {/* AI BRAIN CONFIGURATION SUITE */}
+                      <form onSubmit={handleSaveBrainSettings} className="p-6 rounded-2xl border border-blue-950/50 bg-slate-900/20 shadow-xl space-y-5">
+                        <div className="flex items-center gap-2.5 border-b border-slate-900 pb-3">
+                          <BrainCircuit className="w-5 h-5 text-blue-500 animate-pulse" />
+                          <div>
+                            <h4 className="font-bold text-white text-sm">Konfigurasi Otak AI</h4>
+                            <p className="text-[10px] text-slate-400">Atur preferensi berpikir, model kecerdasan buatan, dan instruksi personal tutor Anda.</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Nama Lengkap Pengguna</label>
+                          <input 
+                            type="text" 
+                            required
+                            value={profileName}
+                            onChange={(e) => setProfileName(e.target.value)}
+                            className="w-full px-3.5 py-2 rounded-xl border border-slate-800 bg-slate-950/50 text-slate-300 text-xs font-semibold focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Kecerdasan Mesin (AI Model)</label>
+                          <select 
+                            value={brainModel}
+                            onChange={(e) => setBrainModel(e.target.value)}
+                            className="w-full px-3.5 py-2 rounded-xl border border-slate-800 bg-slate-950/50 text-slate-300 text-xs font-semibold focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="gemini-3.5-flash">Gemini 3.5 Flash (Sangat Pintar & Responsif)</option>
+                            <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Super Cepat & Ringan)</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Gaya Persona & Karakter Tutor</label>
+                          <select 
+                            value={brainPersona}
+                            onChange={(e) => setBrainPersona(e.target.value)}
+                            className="w-full px-3.5 py-2 rounded-xl border border-slate-800 bg-slate-950/50 text-slate-300 text-xs font-semibold focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="Socratic Mentor">Socratic Mentor (Membimbing dengan pertanyaan analitis)</option>
+                            <option value="Strict Professor">Strict Professor (Sangat terstruktur, detail & berbobot)</option>
+                            <option value="Friendly Study Ally">Friendly Study Ally (Santai, interaktif & bersahabat)</option>
+                            <option value="Code & Logic Expert">Code & Logic Expert (Spesialis logika, pemrograman & matematika)</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Bahasa Utama Jawaban</label>
+                          <select 
+                            value={brainLanguage}
+                            onChange={(e) => setBrainLanguage(e.target.value)}
+                            className="w-full px-3.5 py-2 rounded-xl border border-slate-800 bg-slate-950/50 text-slate-300 text-xs font-semibold focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                            <option value="English">English</option>
+                            <option value="Javanese">Basa Jawa</option>
+                            <option value="Sundanese">Basa Sunda</option>
+                            <option value="Auto">Deteksi Otomatis (Sesuai Materi)</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-2 select-none">
+                          <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            <span>Index Kreativitas (Temperature)</span>
+                            <span className="text-blue-400 font-mono text-xs">{brainCreativity}</span>
+                          </div>
+                          <input 
+                            type="range" 
+                            min="0.1" 
+                            max="1.5" 
+                            step="0.1"
+                            value={brainCreativity}
+                            onChange={(e) => setBrainCreativity(parseFloat(e.target.value))}
+                            className="w-full accent-blue-600"
+                          />
+                          <div className="flex justify-between text-[9px] text-slate-500 font-semibold uppercase">
+                            <span>Sangat Presisi (Fakta)</span>
+                            <span>Sangat Kreatif (Analogi)</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Petunjuk Khusus (Custom Instructions)</label>
+                          <textarea 
+                            value={brainCustomRules}
+                            onChange={(e) => setBrainCustomRules(e.target.value)}
+                            placeholder="Contoh: Selalu jelaskan langkah demi langkah, gunakan sapaan 'Kakak', sisipkan analogi sains..."
+                            className="w-full p-3 rounded-xl border border-slate-800 bg-slate-950/50 text-slate-300 text-xs font-sans h-20 focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <button 
+                          type="submit"
+                          disabled={savingBrainSettings}
+                          className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg hover:shadow-blue-600/10 flex items-center justify-center gap-1.5 transition-all text-center disabled:opacity-50"
+                        >
+                          {savingBrainSettings ? 'Menyinkronkan Otak...' : 'Simpan Konfigurasi Otak AI & Profil'}
+                        </button>
+                      </form>
 
                       {/* Download vault configuration buttons */}
                       <div className="p-6 rounded-2xl border border-slate-900 bg-slate-900/10 space-y-4">
