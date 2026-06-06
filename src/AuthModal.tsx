@@ -209,6 +209,23 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
           </div>
         )}
 
+        {/* Info Box for Admin Email Seeding */}
+        {mode === 'login' && (
+          <div className="mb-4 p-3.5 rounded-xl bg-blue-950/30 border border-blue-900/30 text-[11px] text-blue-200 space-y-1.5 text-left">
+            <div className="font-bold flex items-center gap-1.5 text-blue-400">
+              <Sparkles className="w-3.5 h-3.5 shrink-0 animate-pulse" />
+              <span>Khusus Pemilik Aplikasi (Admin Utama)</span>
+            </div>
+            <p className="leading-relaxed">
+              Email Anda <span className="font-semibold text-white underline">akang.munggiz.07@gmail.com</span> telah didaftarkan langsung sebagai **Admin Utama**. Gunakan password: <span className="font-mono bg-slate-900 px-1.5 py-0.5 rounded text-white font-bold select-all">admin123</span> atau klik <strong className="text-white">"Google SSO"</strong> untuk masuk instan!
+            </p>
+            <div className="h-px bg-blue-900/20 my-1"></div>
+            <p className="text-[10px] text-slate-400">
+              📌 **Bagi Klien / Siswa Lain:** Silakan daftar akun baru secara mandiri dengan mengeklik tombol <strong className="text-blue-400 hover:underline">"Register Free"</strong> di bagian bawah modal ini.
+            </p>
+          </div>
+        )}
+
         <form onSubmit={handleAuthSubmit} className="space-y-4">
           {mode === 'register' && (
             <div className="space-y-1">
