@@ -25,6 +25,7 @@ interface AuthModalProps {
 
 export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }: AuthModalProps) {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(initialMode);
+  const [authType, setAuthType] = useState<'instant' | 'classic'>('instant');
   
   // Registration Inputs
   const [fullName, setFullName] = useState('');
@@ -46,10 +47,10 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
     try {
       if (mode === 'register') {
         if (!fullName || !email || !password || !confirmPassword) {
-          throw new Error('Please fill in all requested fields.');
+          throw new Error('Silakan lengkapi seluruh kolom pendaftaran.');
         }
         if (password !== confirmPassword) {
-          throw new Error('Passwords do not match.');
+          throw new Error('Kata sandi tidak sesuai.');
         }
 
         const res = await fetch('/api/auth/register', {
@@ -60,10 +61,10 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
         const data = await res.json();
         
         if (!res.ok) {
-          throw new Error(data.error || 'Registration failed.');
+          throw new Error(data.error || 'Pendaftaran gagal.');
         }
 
-        setSuccessMsg('Account registered successfully! Redirecting you into local vaults...');
+        setSuccessMsg('Pendaftaran berhasil! Mengalihkan ke halaman utama...');
         
         // Save user's session token securely
         if (rememberMe) {
@@ -78,7 +79,7 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
 
       } else if (mode === 'login') {
         if (!email || !password) {
-          throw new Error('Please enter both your email address and password.');
+          throw new Error('Email dan kata sandi wajib diisi.');
         }
 
         const res = await fetch('/api/auth/login', {
@@ -89,10 +90,10 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
         const data = await res.json();
 
         if (!res.ok) {
-          throw new Error(data.error || 'Authentication failed.');
+          throw new Error(data.error || 'Email atau kata sandi Anda salah.');
         }
 
-        setSuccessMsg('Sign in successful! Syncing learning states...');
+        setSuccessMsg('Berhasil masuk! Mensinkronisasikan profil Anda...');
         if (rememberMe) {
           safeStorage.setItem('studymind_userId', data.user.uid);
         } else {
@@ -103,71 +104,94 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
         }, 1200);
 
       } else if (mode === 'forgot') {
-        if (!email) throw new Error('Please specify your registered email.');
+        if (!email) throw new Error('Silakan masukkan email terdaftar Anda.');
         const res = await fetch('/api/auth/forgot-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Reset failed.');
-        setSuccessMsg(data.message || 'Reset link dispatched.');
+        if (!res.ok) throw new Error(data.error || 'Gagal mengirim instruksi reset.');
+        setSuccessMsg(data.message || 'Instruksi reset berhasil dikirim ke email.');
         setTimeout(() => setMode('reset'), 2500);
 
       } else if (mode === 'reset') {
-        if (!email || !password) throw new Error('Specify your email and the desired new security password.');
+        if (!email || !password) throw new Error('Silakan isi email dan kata sandi baru Anda.');
         const res = await fetch('/api/auth/reset-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, newPassword: password })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to update credentials.');
-        setSuccessMsg(data.message || 'Password modernized successfully. Proceed to login.');
-        setTimeout(() => setMode('login'), 2000);
+        if (!res.ok) throw new Error(data.error || 'Gagal memperbarui kata sandi.');
+        setSuccessMsg(data.message || 'Kata sandi berhasil diperbarui. Silakan masuk.');
+        setTimeout(() => {
+          setMode('login');
+          setAuthType('classic');
+        }, 2000);
       }
     } catch (err: any) {
-      setError(err.message || 'System network error occurred.');
+      setError(err.message || 'Terjadi kesalahan jaringan.');
     } finally {
       setLoading(false);
     }
   };
 
-  const executeGoogleLoginSimulation = () => {
+  const executeGoogleLoginSimulation = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setLoading(true);
     setError(null);
     setSuccessMsg(null);
     
-    // Determine dynamic email and name. If they typed one, use that! Otherwise, fallback to the default admin one.
-    const simEmail = email.trim() || 'akang.munggiz.07@gmail.com';
-    const simName = fullName.trim() || (email ? email.split('@')[0] : 'Google Scholar');
+    const targetEmail = email.trim();
+    if (!targetEmail) {
+      setError('Silakan masukkan alamat email pribadi Anda terlebih dahulu untuk Masuk / Daftar Instan!');
+      setLoading(false);
+      return;
+    }
 
-    // Simulate real OAuth popup or account callback mapping nicely
+    // Basic email validation
+    if (!targetEmail.includes('@') || !targetEmail.includes('.')) {
+      setError('Format email tidak valid. Masukkan format email yang benar.');
+      setLoading(false);
+      return;
+    }
+
+    const simName = fullName.trim() || targetEmail.split('@')[0];
+
+    // Simulate callback mapping nicely
     setTimeout(async () => {
       try {
-        // Single Sign-On Request
         const res = await fetch('/api/auth/google-sso', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fullName: simName, email: simEmail })
+          body: JSON.stringify({ fullName: simName, email: targetEmail })
         });
         const data = await res.json();
 
         if (!res.ok) {
-          throw new Error(data.error || 'Google login failed.');
+          throw new Error(data.error || 'Gagal memproses pendaftaran/login instan.');
         }
 
-        setSuccessMsg(`Google account (${simEmail}) linked successfully! Syncing research states...`);
+        setSuccessMsg(`Berhasil! Masuk instan dengan akun ${targetEmail}...`);
         safeStorage.setItem('studymind_userId', data.user.uid);
         
         setTimeout(() => {
           onSuccess(data.user);
         }, 1200);
       } catch (err: any) {
-        setError(err.message || 'Google Auth linkage error.');
+        setError(err.message || 'Gagal memproses Autentikasi Google SSO.');
         setLoading(false);
       }
     }, 1000);
+  };
+
+  const handleAdminPrefill = () => {
+    setEmail('akang.munggiz.07@gmail.com');
+    setFullName('Munggiz Scholar');
+    setPassword('admin123');
+    setAuthType('classic');
+    setMode('login');
   };
 
   return (
@@ -177,217 +201,299 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
         <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-blue-500 via-sky-400 to-emerald-400"></div>
 
         {/* Header Indicators */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-1.5">
-            <Sparkles className="w-5 h-5 text-blue-500" />
-            <span className="font-bold text-slate-200 text-sm">
-              {mode === 'login' && 'Secure Login Panel'}
-              {mode === 'register' && 'Create Scholar Account'}
+            <Sparkles className="w-5 h-5 text-blue-500 animate-pulse" />
+            <span className="font-bold text-slate-200 text-[13px] tracking-tight">
+              {mode === 'login' && 'StudyMind - Selamat Datang kembali'}
+              {mode === 'register' && 'Daftar Akun Belajar Baru'}
               {mode === 'forgot' && 'Reset Vault Password'}
               {mode === 'reset' && 'Authorize New Password'}
             </span>
           </div>
           <button 
             onClick={onClose} 
-            className="p-1 rounded-lg text-slate-500 hover:text-white hover:bg-slate-900 transition-colors"
+            className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-900 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Display Status Alerts */}
         {error && (
-          <div className="mb-4 p-3.5 rounded-lg bg-rose-950/40 border border-rose-900/40 text-xs text-rose-200 flex items-start gap-2 animate-shake">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="mb-4 p-3.5 rounded-xl bg-rose-950/40 border border-rose-900/40 text-xs text-rose-200 flex items-start gap-2 animate-shake">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
             <span>{error}</span>
           </div>
         )}
 
         {successMsg && (
-          <div className="mb-4 p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-900/40 text-xs text-emerald-200 flex items-start gap-2 animate-pulse">
-            <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="mb-4 p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-900/40 text-xs text-emerald-200 flex items-start gap-2 animate-pulse">
+            <CheckCircle className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
             <span>{successMsg}</span>
           </div>
         )}
 
-        {/* Info Box for Admin Email Seeding */}
-        {mode === 'login' && (
-          <div className="mb-4 p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 text-[11px] text-slate-300 space-y-2 text-left">
-            <div className="font-bold flex items-center gap-1.5 text-blue-400">
-              <Sparkles className="w-3.5 h-3.5 shrink-0 animate-pulse" />
-              <span>Menu Masuk / Pendaftaran Layanan</span>
-            </div>
-            <p className="leading-relaxed">
-              ⭐ **Untuk Siswa & Klien Baru:** Silakan langsung mendaftar dengan menekan tombol <strong className="text-blue-400 hover:underline cursor-pointer" onClick={() => setMode('register')}>"Register Free"</strong> di bagian bawah untuk membuat akun mandiri Anda sendiri secara gratis.
-            </p>
-            <div className="h-px bg-slate-800 my-1"></div>
-            <p className="text-[10px] text-slate-400 leading-relaxed">
-              🔑 **Khusus Owner / Admin (`akang.munggiz.07@gmail.com`):** Akun Anda sudah terdaftar otomatis. Silakan masuk menggunakan kata sandi <span className="font-mono bg-slate-900 px-1.5 py-0.5 rounded text-white font-bold select-all">admin123</span> atau klik tombol <strong className="text-white">"Google SSO"</strong> di bawah untuk akses instan.
-            </p>
+        {/* Auth Method Tabs */}
+        {(mode === 'login' || mode === 'register') && (
+          <div className="mb-5 grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-900/50 border border-slate-900 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthType('instant');
+                setError(null);
+              }}
+              className={`py-2 rounded-lg font-bold transition-all ${
+                authType === 'instant' 
+                  ? 'bg-blue-600 text-white shadow' 
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              🚀 Daftar & Masuk Instan (SSO)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthType('classic');
+                setError(null);
+              }}
+              className={`py-2 rounded-lg font-bold transition-all ${
+                authType === 'classic' 
+                  ? 'bg-blue-600 text-white shadow' 
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              🔑 Akun & Kata Sandi
+            </button>
           </div>
         )}
 
-        <form onSubmit={handleAuthSubmit} className="space-y-4">
-          {mode === 'register' && (
+        {/* Admin Shortcut Quick-Access */}
+        <div className="mb-4 p-3 rounded-xl bg-slate-900/30 border border-slate-800 text-[11px] text-slate-300">
+          <div className="font-bold flex items-center justify-between text-blue-400 mb-1">
+            <span className="flex items-center gap-1.5 font-bold">
+              <Sparkles className="w-3.5 h-3.5 shrink-0 animate-pulse text-amber-500" />
+              <span>Pintasan Akses Cepat</span>
+            </span>
+            <button 
+              type="button"
+              onClick={handleAdminPrefill}
+              className="text-[10px] bg-blue-950 text-blue-300 hover:bg-blue-900 border border-blue-800 px-2.5 py-0.5 rounded-lg font-semibold transition-colors"
+            >
+              Gunakan Akun Utama
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            Gunakan tombol di atas untuk mengisi akun Admin/Owner (<span className="text-slate-300">akang.munggiz.07@gmail.com</span>) secara otomatis, atau ketik email pribadi Anda di bawah untuk mendaftar & masuk instan gratis!
+          </p>
+        </div>
+
+        {authType === 'instant' && (mode === 'login' || mode === 'register') ? (
+          /* Instant 1-Click SSO Registration & Login Form */
+          <form onSubmit={executeGoogleLoginSimulation} className="space-y-4">
             <div className="space-y-1">
-              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider">Full Name</label>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Nama Lengkap (Opsional)</label>
               <div className="relative">
                 <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                 <input
                   type="text"
-                  required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="e.g. Munggiz Scholar"
+                  placeholder="Contoh: Munggiz Scholar"
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-900 bg-slate-900/30 text-slate-200 text-sm focus:border-blue-500 focus:outline-none transition-colors"
                 />
               </div>
             </div>
-          )}
 
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider">Email Address</label>
-            <div className="relative">
-              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@domain.com"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-900 bg-slate-900/30 text-slate-200 text-sm focus:border-blue-500 focus:outline-none transition-colors"
-              />
-            </div>
-          </div>
-
-          {(mode === 'login' || mode === 'register' || mode === 'reset') && (
             <div className="space-y-1">
-              <div className="flex justify-between items-center mb-0.5">
-                <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  {mode === 'reset' ? 'New Password' : 'Password'}
-                </label>
-                {mode === 'login' && (
-                  <button 
-                    type="button" 
-                    onClick={() => setMode('forgot')}
-                    className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
-                  >
-                    Forgot Password?
-                  </button>
-                )}
-              </div>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Alamat Email Pribadi Anda</label>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                 <input
-                  type="password"
+                  type="email"
                   required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="nama.anda@gmail.com"
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-900 bg-slate-900/30 text-slate-200 text-sm focus:border-blue-500 focus:outline-none transition-colors"
                 />
               </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                ⭐ Dengan memasukkan email ini, sistem akan otomatis mendaftarkan akun baru atau masuk ke akun pribadi Anda yang sudah terdaftar.
+              </p>
             </div>
-          )}
 
-          {mode === 'register' && (
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider">Confirm Password</label>
-              <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                <input
-                  type="password"
-                  required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-900 bg-slate-900/30 text-slate-200 text-sm focus:border-blue-500 focus:outline-none transition-colors"
-                />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full mt-2 py-3 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-500 hover:to-sky-500 disabled:from-blue-800 disabled:to-slate-800 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm transition-all shadow-lg active:translate-y-px flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+              ) : (
+                <>
+                  <span>🚀 Daftar & Masuk Instan (1-Click SSO)</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+        ) : (
+          /* Classic Password-based Form */
+          <form onSubmit={handleAuthSubmit} className="space-y-4">
+            {mode === 'register' && (
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Nama Lengkap</label>
+                <div className="relative">
+                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <input
+                    type="text"
+                    required
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Contoh: Munggiz Scholar"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-900 bg-slate-900/30 text-slate-200 text-sm focus:border-blue-500 focus:outline-none transition-colors"
+                  />
+                </div>
               </div>
-            </div>
-          )}
-
-          {mode === 'login' && (
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-400">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={() => setRememberMe(!rememberMe)}
-                  className="rounded border-slate-900 bg-slate-900 text-blue-600 focus:ring-blue-600 focus:ring-offset-slate-950 w-4 h-4"
-                />
-                Remember Me on this browser
-              </label>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full mt-2 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-blue-600/10 active:translate-y-px flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-            ) : (
-              <>
-                {mode === 'login' && 'Sign In to Account'}
-                {mode === 'register' && 'Register Scholar Account'}
-                {mode === 'forgot' && 'Send Reset Password Instructions'}
-                {mode === 'reset' && 'Authorize New Password'}
-                <ArrowRight className="w-4 h-4" />
-              </>
             )}
-          </button>
-        </form>
 
-        {/* OR Spacer */}
-        {(mode === 'login' || mode === 'register') && (
-          <div className="my-6 flex items-center gap-3">
-            <span className="h-px bg-slate-900 grow"></span>
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 select-none">Or Continue With</span>
-            <span className="h-px bg-slate-900 grow"></span>
-          </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Alamat Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="anda@domain.com"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-900 bg-slate-900/30 text-slate-200 text-sm focus:border-blue-500 focus:outline-none transition-colors"
+                />
+              </div>
+            </div>
+
+            {(mode === 'login' || mode === 'register' || mode === 'reset') && (
+              <div className="space-y-1">
+                <div className="flex justify-between items-center mb-0.5">
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    {mode === 'reset' ? 'Kata Sandi Baru' : 'Kata Sandi'}
+                  </label>
+                  {mode === 'login' && (
+                    <button 
+                      type="button" 
+                      onClick={() => setMode('forgot')}
+                      className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
+                    >
+                      Lupa Password?
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-900 bg-slate-900/30 text-slate-200 text-sm focus:border-blue-500 focus:outline-none transition-colors"
+                  />
+                </div>
+              </div>
+            )}
+
+            {mode === 'register' && (
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Konfirmasi Kata Sandi</label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <input
+                    type="password"
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-900 bg-slate-900/30 text-slate-200 text-sm focus:border-blue-500 focus:outline-none transition-colors"
+                  />
+                </div>
+              </div>
+            )}
+
+            {mode === 'login' && (
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={() => setRememberMe(!rememberMe)}
+                    className="rounded border-slate-900 bg-slate-900 text-blue-600 focus:ring-blue-600 focus:ring-offset-slate-950 w-4 h-4"
+                  />
+                  Ingat saya di browser ini
+                </label>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full mt-2 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm transition-all shadow-lg active:translate-y-px flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+              ) : (
+                <>
+                  {mode === 'login' && 'Masuk Akun'}
+                  {mode === 'register' && 'Daftar Akun Belajar'}
+                  {mode === 'forgot' && 'Kirim Instruksi Reset'}
+                  {mode === 'reset' && 'Perbarui Kata Sandi Baru'}
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
         )}
 
-        {/* Social Authentication Simulation */}
-        {(mode === 'login' || mode === 'register') && (
-          <button
-            trigger-id="google-login-oauth"
-            onClick={executeGoogleLoginSimulation}
-            disabled={loading}
-            className="w-full py-2.5 rounded-xl border border-slate-900 bg-slate-900/20 hover:bg-slate-900/40 text-slate-300 hover:text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2"
-          >
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-              <path fill="#ea4335" d="M12 5.04c1.62 0 3.08.56 4.22 1.65l3.12-3.12C17.43 1.68 14.9 1 12 1s-5.43.68-7.34 2.57l3.12 3.12c1.14-1.09 2.6-1.65 4.22-1.65z" />
-              <path fill="#4285f4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.34H12v4.44h6.44c-.28 1.47-1.11 2.71-2.36 3.55v2.96h3.81c2.23-2.05 3.6-5.07 3.6-8.61z" />
-              <path fill="#fbbc05" d="M4.66 7.69c-.24.72-.37 1.49-.37 2.31s.13 1.59.37 2.31l-3.12 3.12A11.96 11.96 0 0 1 0 12c0-2.31.65-4.47 1.77-6.31l2.89 2z" />
-              <path fill="#34a853" d="M12 23c3.24 0 5.96-1.07 7.95-2.92l-3.81-2.96c-1.14.77-2.6 1.23-4.14 1.23-3.18 0-5.88-2.15-6.84-5.04l-3.12 3.12C4.54 20.32 8.01 23 12 23z" />
-            </svg>
-            Google Authorized Single Sign-On
-          </button>
-        )}
-
-        {/* Navigation Option links */}
-        <div className="mt-6 text-center text-xs text-slate-500">
+        {/* Footer Navigation Switcher */}
+        <div className="mt-6 text-center text-xs text-slate-500 border-t border-slate-900/50 pt-4">
           {mode === 'login' && (
             <span>
-              Don't have a personal account yet?{' '}
-              <button onClick={() => setMode('register')} className="text-blue-400 hover:text-blue-300 hover:underline">
-                Register Free
+              Belum memiliki akun pribadi?{' '}
+              <button 
+                onClick={() => {
+                  setMode('register');
+                  setError(null);
+                }} 
+                className="text-blue-400 hover:text-blue-300 font-semibold hover:underline"
+              >
+                Daftar Gratis
               </button>
             </span>
           )}
           {mode === 'register' && (
             <span>
-              Already registered?{' '}
-              <button onClick={() => setMode('login')} className="text-blue-400 hover:text-blue-300 hover:underline">
-                Sign In
+              Sudah mempunyai akun?{' '}
+              <button 
+                onClick={() => {
+                  setMode('login');
+                  setError(null);
+                }} 
+                className="text-blue-400 hover:text-blue-300 font-semibold hover:underline"
+              >
+                Masuk ke Akun
               </button>
             </span>
           )}
           {(mode === 'forgot' || mode === 'reset') && (
-            <button onClick={() => setMode('login')} className="text-blue-400 hover:text-blue-300 hover:underline">
-              Return to Login Panel
+            <button 
+              onClick={() => {
+                setMode('login');
+                setAuthType('instant');
+                setError(null);
+              }} 
+              className="text-blue-400 hover:text-blue-300 font-semibold hover:underline"
+            >
+              Kembali ke Menu Utama
             </button>
           )}
         </div>
