@@ -241,6 +241,84 @@ export function generateStudyKit(userId: string, material: LearningMaterial) {
 }
 
 /**
+ * Automatically seeds standard, fully interactive study templates
+ * for newly registered or logged-in users so their interface is instantly alive.
+ */
+export function seedUserSandbox(userId: string) {
+  const subjects = getLocalJSON<Subject[]>(SUBJECTS_KEY, []);
+  
+  // Ensure user has their customized subjects
+  const userHasSubjects = subjects.some(s => s.userId === userId);
+  if (!userHasSubjects) {
+    const userSubjects: Subject[] = [
+      {
+        id: `sub-ipa-${userId}`,
+        userId,
+        name: 'Ilmu Pengetahuan Alam',
+        icon: 'Cpu',
+        color: '#2563EB',
+        description: 'Mempelajari biologi, fisika, kimia, astronomi, dan fenomena semesta.',
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: `sub-ips-${userId}`,
+        userId,
+        name: 'Ilmu Sosial & Humaniora',
+        icon: 'Layers',
+        color: '#EC4899',
+        description: 'Membahas sosiologi, sejarah, ekonomi, geografi, dan kebudayaan warga.',
+        createdAt: new Date().toISOString()
+      }
+    ];
+    subjects.push(...userSubjects);
+    setLocalJSON(SUBJECTS_KEY, subjects);
+  }
+
+  const materials = getLocalJSON<LearningMaterial[]>(MATERIALS_KEY, []);
+  const userHasMaterials = materials.some(m => m.userId === userId);
+  if (!userHasMaterials) {
+    const starterMaterials: LearningMaterial[] = [
+      {
+        id: `mat-ipa-${userId}`,
+        userId,
+        subjectId: `sub-ipa-${userId}`,
+        title: 'Misteri Black Hole dan Cakrawala Kejadian',
+        description: 'Eksplorasi gravitasi ekstrem, batas relativitas umum, dan kosmos.',
+        content: `Black hole atau lubang hitam adalah wilayah di ruang angkasa di mana gaya gravitasi begitu kuat bahkan cahaya pun tidak dapat lolos darinya. Cakrawala kejadian (event horizon) adalah batas luar batas lubang hitam di mana kecepatan lepas melebihi hukum fisika cahaya. Teori Relativitas Umum Einstein meramalkan bahwa massa yang cukup kompak dapat mendeformasi ruang-waktu untuk membentuk lubang hitam. Belajar astronomi membantu kita memahami batas-batas imajinasi manusia dan hukum alam semesta.`,
+        type: 'txt',
+        size: '1.2 KB',
+        isFavorite: true,
+        isArchived: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: `mat-ips-${userId}`,
+        userId,
+        subjectId: `sub-ips-${userId}`,
+        title: 'Revolusi Industri & Sosiologi Masyarakat Modern',
+        description: 'Studi pergeseran pola agraris ke industrialisasi urban modern.',
+        content: `Revolusi Industri dimulai di Inggris pada akhir abad ke-18 dengan penemuan mesin uap James Watt. Peristiwa sejarah ini mengubah tatanan ekonomi dunia dari agraris menjadi industri manufaktur urban. Dampak sosial utamanya meliputi urbanisasi besar-besaran, lahirnya kelas pekerja baru, dan digitalisasi modern saat ini. Memahami sosiologi sejarah membantu kita melihat pola masa depan.`,
+        type: 'txt',
+        size: '1.5 KB',
+        isFavorite: false,
+        isArchived: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ];
+
+    starterMaterials.forEach(m => {
+      materials.push(m);
+      // Automatically generate associated interactive study assets (Summaries, flashcards, mindmaps, quizzes)
+      generateStudyKit(userId, m);
+    });
+
+    setLocalJSON(MATERIALS_KEY, materials);
+  }
+}
+
+/**
  * Simulated Local API router
  * Dynamically intercepts `/api/` fetch requests on client deployments.
  */
@@ -299,6 +377,9 @@ export async function handleLocalDbRequest(urlString: string, init?: RequestInit
       users.push({ ...newUser, passwordHash: password });
       setLocalJSON(USERS_KEY, users);
 
+      // Seed starter materials & subjects for premium landing experience
+      seedUserSandbox(newUser.uid);
+
       return makeJsonRes(201, { message: 'Registrasi lokal berhasil!', user: newUser });
     }
 
@@ -318,6 +399,9 @@ export async function handleLocalDbRequest(urlString: string, init?: RequestInit
       // Safe update developer active streak
       match.learningStreak = (match.learningStreak || 0) + 1;
       setLocalJSON(USERS_KEY, users);
+
+      // Seed starter materials & subjects so user has content on first login
+      seedUserSandbox(match.uid);
 
       const { passwordHash, ...safeUser } = match;
       return makeJsonRes(200, { message: 'Selamat datang kembali!', user: safeUser });
@@ -350,6 +434,9 @@ export async function handleLocalDbRequest(urlString: string, init?: RequestInit
         setLocalJSON(USERS_KEY, users);
       }
 
+      // Seed starter materials & subjects for SSO entries
+      seedUserSandbox(match.uid);
+
       const { passwordHash, ...safeUser } = match;
       return makeJsonRes(200, { message: 'Autentikasi Pintar SSO Berhasil!', user: safeUser });
     }
@@ -361,6 +448,10 @@ export async function handleLocalDbRequest(urlString: string, init?: RequestInit
       if (!user) {
         return makeJsonRes(404, { error: 'Sesi belajar Anda telah kedaluwarsa. Silakan masuk kembali.' });
       }
+
+      // Ensure active sessions are always seeded
+      seedUserSandbox(user.uid);
+
       const { passwordHash, ...safeUser } = user;
       return makeJsonRes(200, { user: safeUser });
     }
@@ -707,6 +798,91 @@ export async function handleLocalDbRequest(urlString: string, init?: RequestInit
       setLocalJSON(HISTORY_KEY, history);
 
       return makeJsonRes(200, { reply });
+    }
+
+    // 19. GET /api/admin/analytics
+    if (path === '/api/admin/analytics' && method === 'GET') {
+      const users = getLocalJSON<any[]>(USERS_KEY, []);
+      const subjects = getLocalJSON<any[]>(SUBJECTS_KEY, []).length;
+      const mCount = getLocalJSON<any[]>(MATERIALS_KEY, []).length;
+      const hCount = getLocalJSON<any[]>(HISTORY_KEY, []).length;
+      return makeJsonRes(200, {
+        stats: {
+          totalUsers: users.length,
+          totalSubjects: subjects,
+          totalMaterials: mCount,
+          totalInteractions: hCount,
+          activeNow: 1
+        }
+      });
+    }
+
+    // 20. GET /api/admin/users and DELETE /api/admin/users/:uid
+    if (path === '/api/admin/users' && method === 'GET') {
+      const users = getLocalJSON<any[]>(USERS_KEY, []);
+      const safeUsers = users.map(({ passwordHash, ...u }) => u);
+      return makeJsonRes(200, { users: safeUsers });
+    }
+
+    if (path.startsWith('/api/admin/users/') && method === 'DELETE') {
+      const targetUid = path.split('/').pop();
+      const users = getLocalJSON<any[]>(USERS_KEY, []);
+      const filtered = users.filter(u => u.uid !== targetUid);
+      setLocalJSON(USERS_KEY, filtered);
+      return makeJsonRes(200, { success: true, message: ' Scholar user deleted from local db.' });
+    }
+
+    // 21. GET /api/auth/download-data
+    if (path === '/api/auth/download-data' && method === 'GET') {
+      const subjects = getLocalJSON<any[]>(SUBJECTS_KEY, []).filter(s => s.userId === authUserId);
+      const mList = getLocalJSON<any[]>(MATERIALS_KEY, []).filter(m => m.userId === authUserId);
+      const fCards = getLocalJSON<any[]>(FLASHCARDS_KEY, []).filter(f => f.userId === authUserId);
+      return makeJsonRes(200, {
+        userData: {
+          userId: authUserId,
+          exportedAt: new Date().toISOString(),
+          subjects,
+          materials: mList,
+          flashcards: fCards
+        }
+      });
+    }
+
+    // 22. DELETE /api/auth/account
+    if (path === '/api/auth/account' && method === 'DELETE') {
+      const users = getLocalJSON<any[]>(USERS_KEY, []);
+      const filtered = users.filter(u => u.uid !== authUserId);
+      setLocalJSON(USERS_KEY, filtered);
+      return makeJsonRes(200, { success: true, message: 'Account deleted.' });
+    }
+
+    // 23. POST /api/ai/flashcards
+    if (path === '/api/ai/flashcards' && method === 'POST') {
+      const { materialId } = body;
+      const flashcards = getLocalJSON<Flashcard[]>(FLASHCARDS_KEY, []);
+      const extraCards = [
+        { question: 'Apa struktur utama bahasan teori kognitif ini?', answer: 'Yaitu konstruksi pemikiran logis, retensi konseptual dasar, dan korelasi timbal-balik antar gagasan ilmiah.' },
+        { question: 'Sebutkan cara menguasai materi ini dengan efisien!', answer: 'Sering mereview kuis pemikiran kritis, dan berdiskusi interaktif lewat bot Socratic.' }
+      ];
+      extraCards.forEach((ec, idx) => {
+        flashcards.push({
+          id: `fc-extra-${materialId}-${Date.now()}-${idx}`,
+          userId: authUserId,
+          materialId: materialId,
+          question: ec.question,
+          answer: ec.answer,
+          difficulty: 'medium',
+          isFavorite: false,
+          reviewCount: 0,
+          memoryScore: 100,
+          easeFactor: 2.5,
+          intervalDays: 1,
+          nextReviewDate: new Date().toISOString().split('T')[0],
+          createdAt: new Date().toISOString()
+        });
+      });
+      setLocalJSON(FLASHCARDS_KEY, flashcards);
+      return makeJsonRes(200, { success: true, message: '2 flashcard tambahan sukses dibuat.' });
     }
 
   } catch (e: any) {
