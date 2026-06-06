@@ -211,17 +211,17 @@ export default function AuthModal({ onClose, onSuccess, initialMode = 'login' }:
 
         {/* Info Box for Admin Email Seeding */}
         {mode === 'login' && (
-          <div className="mb-4 p-3.5 rounded-xl bg-blue-950/30 border border-blue-900/30 text-[11px] text-blue-200 space-y-1.5 text-left">
+          <div className="mb-4 p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 text-[11px] text-slate-300 space-y-2 text-left">
             <div className="font-bold flex items-center gap-1.5 text-blue-400">
               <Sparkles className="w-3.5 h-3.5 shrink-0 animate-pulse" />
-              <span>Khusus Pemilik Aplikasi (Admin Utama)</span>
+              <span>Menu Masuk / Pendaftaran Layanan</span>
             </div>
             <p className="leading-relaxed">
-              Email Anda <span className="font-semibold text-white underline">akang.munggiz.07@gmail.com</span> telah didaftarkan langsung sebagai **Admin Utama**. Gunakan password: <span className="font-mono bg-slate-900 px-1.5 py-0.5 rounded text-white font-bold select-all">admin123</span> atau klik <strong className="text-white">"Google SSO"</strong> untuk masuk instan!
+              ⭐ **Untuk Siswa & Klien Baru:** Silakan langsung mendaftar dengan menekan tombol <strong className="text-blue-400 hover:underline cursor-pointer" onClick={() => setMode('register')}>"Register Free"</strong> di bagian bawah untuk membuat akun mandiri Anda sendiri secara gratis.
             </p>
-            <div className="h-px bg-blue-900/20 my-1"></div>
-            <p className="text-[10px] text-slate-400">
-              📌 **Bagi Klien / Siswa Lain:** Silakan daftar akun baru secara mandiri dengan mengeklik tombol <strong className="text-blue-400 hover:underline">"Register Free"</strong> di bagian bawah modal ini.
+            <div className="h-px bg-slate-800 my-1"></div>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              🔑 **Khusus Owner / Admin (`akang.munggiz.07@gmail.com`):** Akun Anda sudah terdaftar otomatis. Silakan masuk menggunakan kata sandi <span className="font-mono bg-slate-900 px-1.5 py-0.5 rounded text-white font-bold select-all">admin123</span> atau klik tombol <strong className="text-white">"Google SSO"</strong> di bawah untuk akses instan.
             </p>
           </div>
         )}

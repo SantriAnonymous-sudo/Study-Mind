@@ -228,6 +228,10 @@ export default function App() {
   };
 
   const syncUserSpecificData = async () => {
+    const token = localStorage.getItem('studymind_userId') || sessionStorage.getItem('studymind_userId') || '';
+    if (!token) {
+      return;
+    }
     try {
       const [subData, matData, histData, flashData] = await Promise.all([
         authFetch('/api/subjects'),
@@ -242,6 +246,9 @@ export default function App() {
       setDueFlashcards(flashData.dueToday || []);
       setFlashcardStats(flashData.stats || { totalCards: 0, averageRetention: 85, dueToday: 0 });
     } catch (err: any) {
+      if (err.message && (err.message.includes('Unauthorized access') || err.message.includes('Session expired'))) {
+        return;
+      }
       console.error('Data sync failure:', err);
     }
   };
