@@ -155,6 +155,35 @@ app.post('/api/auth/google-sso', async (req: Request, res: Response) => {
   }
 });
 
+app.post('/api/auth/github-sso', async (req: Request, res: Response) => {
+  try {
+    const { fullName, email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email parameter is compulsory.' });
+    }
+
+    let userRecord = await DB.getUserByEmail(email);
+    if (!userRecord) {
+      const randomPass = Math.random().toString(36).substring(2) + '_git_sso';
+      const passwordHash = hashPassword(randomPass);
+      const assignedRole = (email.toLowerCase() === 'akang.munggiz.07@gmail.com') ? 'admin' : 'student';
+      // Create user
+      await DB.createUser(fullName || 'GitHub Scholar', email, passwordHash, assignedRole);
+      // Retrieve direct record
+      userRecord = await DB.getUserByEmail(email);
+    }
+
+    // Exclude password hash from profile
+    const { passwordHash, ...safeProfile } = userRecord;
+    await DB.updateStreak(safeProfile.uid);
+    const updatedProfile = await DB.getUserByUid(safeProfile.uid);
+
+    res.json({ message: 'GitHub Authentication linked successfully!', user: updatedProfile });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/auth/me', requireAuth, async (req: Request, res: Response) => {
   const userId = req.body.authenticatedUserId;
   const user = await DB.getUserByUid(userId);
@@ -975,6 +1004,11 @@ async function bootstrap() {
     });
   }
 
+  if (process.env.VERCEL) {
+    console.log('Running in Vercel Serverless environment. Delegate listening to Vercel.');
+    return;
+  }
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`StudyMind Server launched on http://0.0.0.0:${PORT}`);
   });
@@ -983,3 +1017,5 @@ async function bootstrap() {
 bootstrap().catch(err => {
   console.error('Failure initializing the multi-layer app server:', err);
 });
+
+export default app;

@@ -4,6 +4,8 @@
  */
 
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { db } from '../src/db/index.ts';
 import { 
   users, 
@@ -54,33 +56,232 @@ export const INITIAL_ACHIEVEMENTS: Achievement[] = [
   { id: 'tutor_scholar', title: 'Socratic Thinker', description: 'Initiate an AI tutor interactive lesson session', icon: 'MessageSquare', xpReward: 80, reqType: 'tutor_chats', reqCount: 1 }
 ];
 
+// Dual-Engine Database configuration helper
+const IS_POSTGRES_CONFIGURED = !!(process.env.SQL_HOST || process.env.POSTGRES_URL || process.env.DATABASE_URL);
+let isPostgresOperational = IS_POSTGRES_CONFIGURED;
+
+// Local JSON Storage Engine (Persistent & Serverless-compatible via /tmp)
+let localStore: any = {
+  users: [],
+  subjects: [],
+  materials: [],
+  learningHistory: [],
+  summaries: [],
+  explanations: [],
+  mindmaps: [],
+  flashcards: [],
+  quizzes: [],
+  quizResults: [],
+  tutorChats: []
+};
+
+const getLocalDbPath = () => {
+  try {
+    // Vercel has a completely read-only filesystem except for the /tmp folder
+    if (process.env.VERCEL) {
+      return '/tmp/studymind_db.json';
+    }
+    
+    if (!fs.existsSync('/tmp')) {
+      const dir = path.join(process.cwd(), 'data');
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      return path.join(dir, 'studymind_db.json');
+    } else {
+      return '/tmp/studymind_db.json';
+    }
+  } catch (e) {
+    return '/tmp/studymind_db.json';
+  }
+};
+
+const localDbFile = getLocalDbPath();
+
+function loadLocalStore() {
+  try {
+    if (fs.existsSync(localDbFile)) {
+      const parsed = JSON.parse(fs.readFileSync(localDbFile, 'utf8'));
+      localStore = { ...localStore, ...parsed };
+    } else {
+      // Seed default admin and metadata values immediately
+      localStore.users = [{
+        uid: 'admin_demo_id',
+        fullName: 'Munggiz Scholar',
+        email: 'akang.munggiz.07@gmail.com',
+        passwordHash: hashPassword('admin123'),
+        profilePhoto: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=256',
+        level: 5,
+        xp: 450,
+        learningStreak: 4,
+        joinDate: new Date('2026-06-01T12:00:00Z').toISOString(),
+        role: 'admin',
+        unlockedAchievements: 'first_upload'
+      }];
+      localStore.subjects = [
+        {
+          id: 'sub_1',
+          userId: 'admin_demo_id',
+          name: 'Computer Science & AI',
+          icon: 'Cpu',
+          color: '#2563EB',
+          description: 'Study of algorithms, neural networks, machine systems, and large language structures.',
+          createdAt: new Date('2026-06-01T12:00:00Z').toISOString()
+        },
+        {
+          id: 'sub_2',
+          userId: 'admin_demo_id',
+          name: 'Digital Marketing strategy',
+          icon: 'Megaphone',
+          color: '#22C55E',
+          description: 'Analyzing user acquisitions, performance campaigns, viral hooks, and SEO frameworks.',
+          createdAt: new Date('2026-06-01T12:00:00Z').toISOString()
+        }
+      ];
+      localStore.materials = [
+        {
+          id: 'mat_1',
+          userId: 'admin_demo_id',
+          subjectId: 'sub_1',
+          title: 'Deep Neural Networks Overview',
+          description: 'A study notes file on feed-forward multi-layer perceptrons, SGD backprop, and activation mechanisms.',
+          type: 'markdown',
+          content: `# Introduction to Deep Neural Networks\n\nDeep neural networks (DNNs) are artificial neural networks with multiple layers between the input and output layers. They find the correct mathematical manipulation to turn the input into the output, whether it is a linear relationship or a non-linear relationship.\n\n## Network Structure\n\n1. Input Layer: Receives input\n2. Hidden Layers: Perform activations\n3. Output Layer: Predicts`,
+          size: '1.2 KB',
+          isFavorite: true,
+          isArchived: false,
+          createdAt: new Date('2026-06-01T12:05:00Z').toISOString(),
+          updatedAt: new Date('2026-06-01T12:05:00Z').toISOString()
+        }
+      ];
+      localStore.learningHistory = [
+        {
+          id: 'hist_1',
+          userId: 'admin_demo_id',
+          materialId: 'mat_1',
+          activityType: 'Upload',
+          activityTitle: 'Uploaded Deep Neural Networks Overview',
+          createdAt: new Date('2026-06-01T12:05:00Z').toISOString()
+        },
+        {
+          id: 'hist_2',
+          userId: 'admin_demo_id',
+          materialId: 'mat_1',
+          activityType: 'Summary',
+          activityTitle: 'Generated Short Summary guide',
+          createdAt: new Date('2026-06-01T12:10:00Z').toISOString()
+        }
+      ];
+      localStore.summaries = [
+        {
+          id: 'sum_1',
+          userId: 'admin_demo_id',
+          materialId: 'mat_1',
+          type: 'short',
+          content: `**Short Summary:** Deep Neural Networks (DNNs) consist of input, output, and multiple hidden layers that capture complex non-linear structures.`,
+          createdAt: new Date('2026-06-01T12:10:00Z').toISOString()
+        }
+      ];
+      saveLocalStore();
+    }
+  } catch (e) {
+    console.error('Failed to load local store:', e);
+  }
+}
+
+function saveLocalStore() {
+  try {
+    const parentDir = path.dirname(localDbFile);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+    fs.writeFileSync(localDbFile, JSON.stringify(localStore, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Failed to save local store:', e);
+  }
+}
+
+loadLocalStore();
+
 export const DB = {
   // USER METHODS
   async getUserByEmail(email: string): Promise<any | null> {
-    const results = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
-    return results[0] || null;
+    const emailKey = email.toLowerCase().trim();
+    if (!isPostgresOperational) {
+      return localStore.users.find((u: any) => u.email === emailKey) || null;
+    }
+    try {
+      const results = await db.select().from(users).where(eq(users.email, emailKey));
+      return results[0] || null;
+    } catch (err) {
+      console.warn('PostgreSQL database select failed, falling back to JSON persistence:', err);
+      isPostgresOperational = false;
+      return localStore.users.find((u: any) => u.email === emailKey) || null;
+    }
   },
 
   async getUserByUid(uid: string): Promise<UserProfile | null> {
-    const results = await db.select().from(users).where(eq(users.uid, uid));
-    if (results.length === 0) return null;
-    const { passwordHash, unlockedAchievements, ...safeProfile } = results[0];
-    return {
-      ...safeProfile,
-      unlockedAchievements: unlockedAchievements ? unlockedAchievements.split(',') : []
-    } as UserProfile;
+    if (!isPostgresOperational) {
+      const user = localStore.users.find((u: any) => u.uid === uid);
+      if (!user) return null;
+      return {
+        ...user,
+        unlockedAchievements: typeof user.unlockedAchievements === 'string' ? 
+          (user.unlockedAchievements ? user.unlockedAchievements.split(',') : []) : 
+          (user.unlockedAchievements || [])
+      } as UserProfile;
+    }
+    try {
+      const results = await db.select().from(users).where(eq(users.uid, uid));
+      if (results.length === 0) return null;
+      const { passwordHash, unlockedAchievements, ...safeProfile } = results[0];
+      return {
+        ...safeProfile,
+        unlockedAchievements: unlockedAchievements ? unlockedAchievements.split(',') : []
+      } as UserProfile;
+    } catch (err) {
+      console.warn('PostgreSQL database select by UID failed, falling back to JSON persistence:', err);
+      isPostgresOperational = false;
+      const user = localStore.users.find((u: any) => u.uid === uid);
+      if (!user) return null;
+      return {
+        ...user,
+        unlockedAchievements: typeof user.unlockedAchievements === 'string' ? 
+          (user.unlockedAchievements ? user.unlockedAchievements.split(',') : []) : 
+          (user.unlockedAchievements || [])
+      } as UserProfile;
+    }
   },
 
   async getAllUsers(): Promise<UserProfile[]> {
-    const results = await db.select().from(users);
-    return results.map(({ passwordHash, unlockedAchievements, ...safeProfile }) => ({
-      ...safeProfile,
-      unlockedAchievements: unlockedAchievements ? unlockedAchievements.split(',') : []
-    } as UserProfile));
+    if (!isPostgresOperational) {
+      return localStore.users.map((u: any) => ({
+        ...u,
+        unlockedAchievements: typeof u.unlockedAchievements === 'string' ? 
+          (u.unlockedAchievements ? u.unlockedAchievements.split(',') : []) : 
+          (u.unlockedAchievements || [])
+      } as UserProfile));
+    }
+    try {
+      const results = await db.select().from(users);
+      return results.map(({ passwordHash, unlockedAchievements, ...safeProfile }) => ({
+        ...safeProfile,
+        unlockedAchievements: unlockedAchievements ? unlockedAchievements.split(',') : []
+      } as UserProfile));
+    } catch (err) {
+      console.warn('PostgreSQL database load all users failed, falling back to JSON persistence:', err);
+      isPostgresOperational = false;
+      return localStore.users.map((u: any) => ({
+        ...u,
+        unlockedAchievements: typeof u.unlockedAchievements === 'string' ? 
+          (u.unlockedAchievements ? u.unlockedAchievements.split(',') : []) : 
+          (u.unlockedAchievements || [])
+      } as UserProfile));
+    }
   },
 
   async createUser(fullName: string, email: string, passwordHash: string, role: 'student' | 'admin' = 'student'): Promise<UserProfile> {
-    const emailKey = email.toLowerCase();
+    const emailKey = email.toLowerCase().trim();
     const existing = await this.getUserByEmail(emailKey);
     if (existing) {
       throw new Error('User already exists');
@@ -110,10 +311,29 @@ export const DB = {
       unlockedAchievements: ''
     };
 
-    await db.insert(users).values(newUser);
+    if (isPostgresOperational) {
+      try {
+        await db.insert(users).values(newUser);
+        // Auto seed default subjects for new users
+        const defaultSubject: Subject = {
+          id: 'sub_' + Math.random().toString(36).substr(2, 9),
+          userId: uid,
+          name: 'General Studies',
+          icon: 'GraduationCap',
+          color: '#2563EB',
+          description: 'Primary workspace for broad study concepts, research notes, and general reviews.',
+          createdAt: new Date().toISOString()
+        };
+        await db.insert(subjects).values(defaultSubject);
+      } catch (err) {
+        console.warn('PostgreSQL user insertion failed, rolling over to JSON layer:', err);
+        isPostgresOperational = false;
+      }
+    }
 
-    // Auto seed default subjects for new users
-    const defaultSubject: Subject = {
+    // Always keep Local JSON aligned as synchronous backup
+    localStore.users.push(newUser);
+    const defaultSubjectLocal = {
       id: 'sub_' + Math.random().toString(36).substr(2, 9),
       userId: uid,
       name: 'General Studies',
@@ -122,7 +342,8 @@ export const DB = {
       description: 'Primary workspace for broad study concepts, research notes, and general reviews.',
       createdAt: new Date().toISOString()
     };
-    await db.insert(subjects).values(defaultSubject);
+    localStore.subjects.push(defaultSubjectLocal);
+    saveLocalStore();
 
     return {
       uid,
@@ -145,8 +366,8 @@ export const DB = {
   },
 
   async updateUserProfile(uid: string, updates: Partial<UserProfile>): Promise<UserProfile> {
-    const results = await db.select().from(users).where(eq(users.uid, uid));
-    if (results.length === 0) {
+    const userIndex = localStore.users.findIndex((u: any) => u.uid === uid);
+    if (userIndex === -1 && !isPostgresOperational) {
       throw new Error('User profile not found');
     }
 
@@ -155,7 +376,23 @@ export const DB = {
       cleanedUpdates.unlockedAchievements = updates.unlockedAchievements.join(',');
     }
 
-    await db.update(users).set(cleanedUpdates).where(eq(users.uid, uid));
+    if (isPostgresOperational) {
+      try {
+        await db.update(users).set(cleanedUpdates).where(eq(users.uid, uid));
+      } catch (err) {
+        console.warn('PostgreSQL update user profile failed, falling back to JSON persistence:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    // Update JSON fallback
+    if (userIndex !== -1) {
+      localStore.users[userIndex] = {
+        ...localStore.users[userIndex],
+        ...cleanedUpdates
+      };
+      saveLocalStore();
+    }
 
     const updated = await this.getUserByUid(uid);
     if (!updated) {
@@ -165,11 +402,29 @@ export const DB = {
   },
 
   async deleteUser(uid: string): Promise<boolean> {
-    const results = await db.select().from(users).where(eq(users.uid, uid));
-    if (results.length === 0) return false;
+    const userIndex = localStore.users.findIndex((u: any) => u.uid === uid);
+    let deleted = false;
 
-    await db.delete(users).where(eq(users.uid, uid));
-    return true;
+    if (isPostgresOperational) {
+      try {
+        await db.delete(users).where(eq(users.uid, uid));
+        deleted = true;
+      } catch (err) {
+        console.warn('PostgreSQL delete user failed, rolling over to JSON layer:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    if (userIndex !== -1) {
+      localStore.users.splice(userIndex, 1);
+      // Clean cascade dependencies
+      localStore.subjects = localStore.subjects.filter((s: any) => s.userId !== uid);
+      localStore.materials = localStore.materials.filter((m: any) => m.userId !== uid);
+      saveLocalStore();
+      deleted = true;
+    }
+
+    return deleted;
   },
 
   async addXP(uid: string, amount: number): Promise<{ xp: number; level: number; unlocked: Achievement[] }> {
@@ -182,14 +437,9 @@ export const DB = {
     let achievementsToUnlock: Achievement[] = [];
     const unlockedList = [...profile.unlockedAchievements];
 
-    // Read statistics to evaluate achievements
-    const [matList, sumList] = await Promise.all([
-      db.select().from(materials).where(eq(materials.userId, uid)),
-      db.select().from(summaries).where(eq(summaries.userId, uid))
-    ]);
-    
-    const totalUploads = matList.length;
-    const totalSummaries = sumList.length;
+    // Read statistics to evaluate achievements safely
+    const totalUploads = localStore.materials.filter((m: any) => m.userId === uid).length;
+    const totalSummaries = localStore.summaries.filter((s: any) => s.userId === uid).length;
     const streakCount = profile.learningStreak || 1;
 
     // Check first upload
@@ -208,23 +458,38 @@ export const DB = {
       achievementsToUnlock.push(INITIAL_ACHIEVEMENTS.find(a => a.id === 'streak_7')!);
     }
 
-    await db.update(users).set({
-      xp: currentXP,
-      level: currentLevel,
-      unlockedAchievements: unlockedList.join(',')
-    }).where(eq(users.uid, uid));
+    if (isPostgresOperational) {
+      try {
+        await db.update(users).set({
+          xp: currentXP,
+          level: currentLevel,
+          unlockedAchievements: unlockedList.join(',')
+        }).where(eq(users.uid, uid));
+      } catch (err) {
+        console.warn('PostgreSQL update XP failed, falling back to JSON persistence:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    // Keep memory aligned
+    const uIdx = localStore.users.findIndex((u: any) => u.uid === uid);
+    if (uIdx !== -1) {
+      localStore.users[uIdx].xp = currentXP;
+      localStore.users[uIdx].level = currentLevel;
+      localStore.users[uIdx].unlockedAchievements = unlockedList.join(',');
+      saveLocalStore();
+    }
 
     return { xp: currentXP, level: currentLevel, unlocked: achievementsToUnlock };
   },
 
   async updateStreak(uid: string): Promise<number> {
-    const results = await db.select().from(users).where(eq(users.uid, uid));
-    if (results.length === 0) return 1;
+    const profile = await this.getUserByUid(uid);
+    if (!profile) return 1;
 
-    const userObj = results[0];
     const todayStr = new Date().toISOString().substring(0, 10);
-    const lastActive = userObj.lastActiveDate;
-    let currentStreak = userObj.learningStreak || 1;
+    const lastActive = profile.lastActiveDate;
+    let currentStreak = profile.learningStreak || 1;
 
     if (lastActive) {
       if (lastActive === todayStr) {
@@ -243,18 +508,41 @@ export const DB = {
       }
     }
 
-    await db.update(users).set({
-      lastActiveDate: todayStr,
-      learningStreak: currentStreak
-    }).where(eq(users.uid, uid));
+    if (isPostgresOperational) {
+      try {
+        await db.update(users).set({
+          lastActiveDate: todayStr,
+          learningStreak: currentStreak
+        }).where(eq(users.uid, uid));
+      } catch (err) {
+        console.warn('PostgreSQL update streak failed, falling back to JSON persistence:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    const uIdx = localStore.users.findIndex((u: any) => u.uid === uid);
+    if (uIdx !== -1) {
+      localStore.users[uIdx].lastActiveDate = todayStr;
+      localStore.users[uIdx].learningStreak = currentStreak;
+      saveLocalStore();
+    }
 
     return currentStreak;
   },
 
   // SUBJECT METHODS
   async getSubjects(userId: string): Promise<Subject[]> {
-    const results = await db.select().from(subjects).where(eq(subjects.userId, userId));
-    return results as Subject[];
+    if (!isPostgresOperational) {
+      return localStore.subjects.filter((s: any) => s.userId === userId);
+    }
+    try {
+      const results = await db.select().from(subjects).where(eq(subjects.userId, userId));
+      return results as Subject[];
+    } catch (err) {
+      console.warn('PostgreSQL get subjects failed, falling back to JSON persistence:', err);
+      isPostgresOperational = false;
+      return localStore.subjects.filter((s: any) => s.userId === userId);
+    }
   },
 
   async createSubject(userId: string, name: string, icon: string, color: string, description: string): Promise<Subject> {
@@ -268,14 +556,34 @@ export const DB = {
       description,
       createdAt: new Date().toISOString()
     };
-    await db.insert(subjects).values(newSub);
+
+    if (isPostgresOperational) {
+      try {
+        await db.insert(subjects).values(newSub);
+      } catch (err) {
+        console.warn('PostgreSQL insertion failed for subject, writing to JSON tier:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    localStore.subjects.push(newSub);
+    saveLocalStore();
     return newSub;
   },
 
   // MATERIALS STORAGE
   async getMaterials(userId: string): Promise<LearningMaterial[]> {
-    const results = await db.select().from(materials).where(eq(materials.userId, userId));
-    return results as LearningMaterial[];
+    if (!isPostgresOperational) {
+      return localStore.materials.filter((m: any) => m.userId === userId);
+    }
+    try {
+      const results = await db.select().from(materials).where(eq(materials.userId, userId));
+      return results as LearningMaterial[];
+    } catch (err) {
+      console.warn('PostgreSQL query for materials failed, loading from JSON store:', err);
+      isPostgresOperational = false;
+      return localStore.materials.filter((m: any) => m.userId === userId);
+    }
   },
 
   async createMaterial(userId: string, material: Omit<LearningMaterial, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'isFavorite' | 'isArchived'>): Promise<LearningMaterial> {
@@ -289,7 +597,18 @@ export const DB = {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-    await db.insert(materials).values(newMaterial);
+
+    if (isPostgresOperational) {
+      try {
+        await db.insert(materials).values(newMaterial);
+      } catch (err) {
+        console.warn('PostgreSQL write on material failed, pushing to local memory:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    localStore.materials.push(newMaterial);
+    saveLocalStore();
 
     await this.addHistory(userId, id, 'Upload', `Uploaded ${material.title}`);
     await this.addXP(userId, 10);
@@ -298,34 +617,88 @@ export const DB = {
   },
 
   async updateMaterial(id: string, updates: Partial<LearningMaterial>): Promise<LearningMaterial> {
-    const results = await db.select().from(materials).where(eq(materials.id, id));
-    if (results.length === 0) throw new Error('Material not found');
-
     const cleanUpdates = {
       ...updates,
       updatedAt: new Date().toISOString()
     };
 
-    await db.update(materials).set(cleanUpdates).where(eq(materials.id, id));
-    const reFetched = await db.select().from(materials).where(eq(materials.id, id));
-    return reFetched[0] as LearningMaterial;
+    if (isPostgresOperational) {
+      try {
+        await db.update(materials).set(cleanUpdates).where(eq(materials.id, id));
+        const reFetched = await db.select().from(materials).where(eq(materials.id, id));
+        if (reFetched[0]) return reFetched[0] as LearningMaterial;
+      } catch (err) {
+        console.warn('PostgreSQL update material failed, updating local copy:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    const idx = localStore.materials.findIndex((m: any) => m.id === id);
+    if (idx === -1) throw new Error('Material not found');
+    localStore.materials[idx] = {
+      ...localStore.materials[idx],
+      ...cleanUpdates
+    };
+    saveLocalStore();
+    return localStore.materials[idx];
   },
 
   async deleteMaterial(id: string): Promise<boolean> {
-    const results = await db.select().from(materials).where(eq(materials.id, id));
-    if (results.length === 0) return false;
+    let deleted = false;
+    if (isPostgresOperational) {
+      try {
+        await db.delete(materials).where(eq(materials.id, id));
+        deleted = true;
+      } catch (err) {
+        console.warn('PostgreSQL delete material failed, calling local clean:', err);
+        isPostgresOperational = false;
+      }
+    }
 
-    await db.delete(materials).where(eq(materials.id, id));
-    return true;
+    const idx = localStore.materials.findIndex((m: any) => m.id === id);
+    if (idx !== -1) {
+      localStore.materials.splice(idx, 1);
+      // Clean child materials from JSON
+      localStore.learningHistory = localStore.learningHistory.filter((h: any) => h.materialId !== id);
+      localStore.summaries = localStore.summaries.filter((s: any) => s.materialId !== id);
+      localStore.flashcards = localStore.flashcards.filter((f: any) => f.materialId !== id);
+      localStore.quizzes = localStore.quizzes.filter((q: any) => q.materialId !== id);
+      localStore.tutorChats = localStore.tutorChats.filter((t: any) => t.materialId !== id);
+      saveLocalStore();
+      deleted = true;
+    }
+
+    return deleted;
   },
 
   // LEARNING HISTORY
   async getLearningHistory(userId: string): Promise<LearningHistory[]> {
-    const results = await db.select().from(learningHistory).where(eq(learningHistory.userId, userId)).orderBy(desc(learningHistory.createdAt));
-    return results.map(row => ({
-      ...row,
-      metadata: row.metadata ? JSON.parse(row.metadata) : undefined
-    })) as LearningHistory[];
+    if (!isPostgresOperational) {
+      return localStore.learningHistory
+        .filter((h: any) => h.userId === userId)
+        .sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt))
+        .map((row: any) => ({
+          ...row,
+          metadata: row.metadata ? JSON.parse(row.metadata) : undefined
+        })) as LearningHistory[];
+    }
+    try {
+      const results = await db.select().from(learningHistory).where(eq(learningHistory.userId, userId)).orderBy(desc(learningHistory.createdAt));
+      return results.map(row => ({
+        ...row,
+        metadata: row.metadata ? JSON.parse(row.metadata) : undefined
+      })) as LearningHistory[];
+    } catch (err) {
+      console.warn('PostgreSQL history query failed, reverting to local data:', err);
+      isPostgresOperational = false;
+      return localStore.learningHistory
+        .filter((h: any) => h.userId === userId)
+        .sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt))
+        .map((row: any) => ({
+          ...row,
+          metadata: row.metadata ? JSON.parse(row.metadata) : undefined
+        })) as LearningHistory[];
+    }
   },
 
   async addHistory(userId: string, materialId: string, activityType: ActivityType, activityTitle: string, metadata?: any): Promise<LearningHistory> {
@@ -339,7 +712,19 @@ export const DB = {
       metadata: metadata ? JSON.stringify(metadata) : null,
       createdAt: new Date().toISOString()
     };
-    await db.insert(learningHistory).values(newHist);
+
+    if (isPostgresOperational) {
+      try {
+        await db.insert(learningHistory).values(newHist);
+      } catch (err) {
+        console.warn('PostgreSQL push history failed, writing to local JSON store:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    localStore.learningHistory.push(newHist);
+    saveLocalStore();
+
     return {
       ...newHist,
       metadata
@@ -348,18 +733,21 @@ export const DB = {
 
   // AI SUMMARIES
   async getSummaries(userId: string, materialId: string): Promise<AISummary[]> {
-    const results = await db.select().from(summaries).where(and(eq(summaries.userId, userId), eq(summaries.materialId, materialId)));
-    return results as AISummary[];
+    if (!isPostgresOperational) {
+      return localStore.summaries.filter((s: any) => s.userId === userId && s.materialId === materialId) as AISummary[];
+    }
+    try {
+      const results = await db.select().from(summaries).where(and(eq(summaries.userId, userId), eq(summaries.materialId, materialId)));
+      return results as AISummary[];
+    } catch (err) {
+      console.warn('PostgreSQL select summaries failed, checking local files:', err);
+      isPostgresOperational = false;
+      return localStore.summaries.filter((s: any) => s.userId === userId && s.materialId === materialId) as AISummary[];
+    }
   },
 
   async createSummary(userId: string, materialId: string, type: 'short' | 'medium' | 'detailed', content: string): Promise<AISummary> {
     const id = 'sum_' + Math.random().toString(36).substr(2, 9);
-    await db.delete(summaries).where(and(
-      eq(summaries.userId, userId),
-      eq(summaries.materialId, materialId),
-      eq(summaries.type, type)
-    ));
-
     const newSummary = {
       id,
       userId,
@@ -368,7 +756,25 @@ export const DB = {
       content,
       createdAt: new Date().toISOString()
     };
-    await db.insert(summaries).values(newSummary);
+
+    if (isPostgresOperational) {
+      try {
+        await db.delete(summaries).where(and(
+          eq(summaries.userId, userId),
+          eq(summaries.materialId, materialId),
+          eq(summaries.type, type)
+        ));
+        await db.insert(summaries).values(newSummary);
+      } catch (err) {
+        console.warn('PostgreSQL write summary failed, falling back to JSON persistence:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    // Align JSON backup
+    localStore.summaries = localStore.summaries.filter((s: any) => !(s.userId === userId && s.materialId === materialId && s.type === type));
+    localStore.summaries.push(newSummary);
+    saveLocalStore();
 
     await this.addHistory(userId, materialId, 'Summary', `Generated ${type} summary`);
     await this.addXP(userId, 10);
@@ -378,18 +784,21 @@ export const DB = {
 
   // AI EXPLANATIONS
   async getExplanations(userId: string, materialId: string): Promise<AIExplanation[]> {
-    const results = await db.select().from(explanations).where(and(eq(explanations.userId, userId), eq(explanations.materialId, materialId)));
-    return results as AIExplanation[];
+    if (!isPostgresOperational) {
+      return localStore.explanations.filter((e: any) => e.userId === userId && e.materialId === materialId) as AIExplanation[];
+    }
+    try {
+      const results = await db.select().from(explanations).where(and(eq(explanations.userId, userId), eq(explanations.materialId, materialId)));
+      return results as AIExplanation[];
+    } catch (err) {
+      console.warn('PostgreSQL load explanation failed, showing local results:', err);
+      isPostgresOperational = false;
+      return localStore.explanations.filter((e: any) => e.userId === userId && e.materialId === materialId) as AIExplanation[];
+    }
   },
 
   async createExplanation(userId: string, materialId: string, difficulty: ExplanationDifficulty, content: string): Promise<AIExplanation> {
     const id = 'exp_' + Math.random().toString(36).substr(2, 9);
-    await db.delete(explanations).where(and(
-      eq(explanations.userId, userId),
-      eq(explanations.materialId, materialId),
-      eq(explanations.difficulty, difficulty)
-    ));
-
     const newExplanation = {
       id,
       userId,
@@ -398,7 +807,24 @@ export const DB = {
       content,
       createdAt: new Date().toISOString()
     };
-    await db.insert(explanations).values(newExplanation);
+
+    if (isPostgresOperational) {
+      try {
+        await db.delete(explanations).where(and(
+          eq(explanations.userId, userId),
+          eq(explanations.materialId, materialId),
+          eq(explanations.difficulty, difficulty)
+        ));
+        await db.insert(explanations).values(newExplanation);
+      } catch (err) {
+        console.warn('PostgreSQL write explanation failed, writing to JSON:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    localStore.explanations = localStore.explanations.filter((e: any) => !(e.userId === userId && e.materialId === materialId && e.difficulty === difficulty));
+    localStore.explanations.push(newExplanation);
+    saveLocalStore();
 
     await this.addHistory(userId, materialId, 'Explanation', `Generated explanations in ${difficulty} mode`);
     await this.addXP(userId, 10);
@@ -408,17 +834,34 @@ export const DB = {
 
   // AI MIND MAPS
   async getMindMaps(userId: string, materialId: string): Promise<AIMindMap[]> {
-    const results = await db.select().from(mindmaps).where(and(eq(mindmaps.userId, userId), eq(mindmaps.materialId, materialId)));
-    return results.map(row => ({
-      ...row,
-      jsonData: JSON.parse(row.jsonData)
-    })) as AIMindMap[];
+    if (!isPostgresOperational) {
+      return localStore.mindmaps
+        .filter((m: any) => m.userId === userId && m.materialId === materialId)
+        .map((row: any) => ({
+          ...row,
+          jsonData: typeof row.jsonData === 'string' ? JSON.parse(row.jsonData) : row.jsonData
+        })) as AIMindMap[];
+    }
+    try {
+      const results = await db.select().from(mindmaps).where(and(eq(mindmaps.userId, userId), eq(mindmaps.materialId, materialId)));
+      return results.map(row => ({
+        ...row,
+        jsonData: JSON.parse(row.jsonData)
+      })) as AIMindMap[];
+    } catch (err) {
+      console.warn('PostgreSQL mindmaps loading failed, mapping local storage:', err);
+      isPostgresOperational = false;
+      return localStore.mindmaps
+        .filter((m: any) => m.userId === userId && m.materialId === materialId)
+        .map((row: any) => ({
+          ...row,
+          jsonData: typeof row.jsonData === 'string' ? JSON.parse(row.jsonData) : row.jsonData
+        })) as AIMindMap[];
+    }
   },
 
   async createMindMap(userId: string, materialId: string, jsonData: { root: MindMapNode }): Promise<AIMindMap> {
     const id = 'mm_' + Math.random().toString(36).substr(2, 9);
-    await db.delete(mindmaps).where(and(eq(mindmaps.userId, userId), eq(mindmaps.materialId, materialId)));
-
     const newMindMap = {
       id,
       userId,
@@ -426,7 +869,20 @@ export const DB = {
       jsonData: JSON.stringify(jsonData),
       createdAt: new Date().toISOString()
     };
-    await db.insert(mindmaps).values(newMindMap);
+
+    if (isPostgresOperational) {
+      try {
+        await db.delete(mindmaps).where(and(eq(mindmaps.userId, userId), eq(mindmaps.materialId, materialId)));
+        await db.insert(mindmaps).values(newMindMap);
+      } catch (err) {
+        console.warn('PostgreSQL save mind map failed, migrating to JSON:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    localStore.mindmaps = localStore.mindmaps.filter((m: any) => !(m.userId === userId && m.materialId === materialId));
+    localStore.mindmaps.push(newMindMap);
+    saveLocalStore();
 
     await this.addHistory(userId, materialId, 'MindMap', `Created interactive mind-map blueprint`);
     await this.addXP(userId, 15);
@@ -439,21 +895,44 @@ export const DB = {
 
   // AI FLASHCARDS & SRS ENTRIES
   async getFlashcards(userId: string, materialId: string): Promise<Flashcard[]> {
-    const results = await db.select().from(flashcards).where(and(eq(flashcards.userId, userId), eq(flashcards.materialId, materialId)));
-    return results as Flashcard[];
+    if (!isPostgresOperational) {
+      return localStore.flashcards.filter((f: any) => f.userId === userId && f.materialId === materialId) as Flashcard[];
+    }
+    try {
+      const results = await db.select().from(flashcards).where(and(eq(flashcards.userId, userId), eq(flashcards.materialId, materialId)));
+      return results as Flashcard[];
+    } catch (err) {
+      console.warn('PostgreSQL error loading flashcards, loading JSON fallback:', err);
+      isPostgresOperational = false;
+      return localStore.flashcards.filter((f: any) => f.userId === userId && f.materialId === materialId) as Flashcard[];
+    }
   },
 
   async getAllFlashcardsDue(userId: string): Promise<Flashcard[]> {
     const todayStr = new Date().toISOString().substring(0, 10);
-    const results = await db.select().from(flashcards).where(and(eq(flashcards.userId, userId), lte(flashcards.nextReviewDate, todayStr)));
-    return results as Flashcard[];
+    if (!isPostgresOperational) {
+      return localStore.flashcards.filter((f: any) => f.userId === userId && f.nextReviewDate <= todayStr) as Flashcard[];
+    }
+    try {
+      const results = await db.select().from(flashcards).where(and(eq(flashcards.userId, userId), lte(flashcards.nextReviewDate, todayStr)));
+      return results as Flashcard[];
+    } catch (err) {
+      console.warn('PostgreSQL load schedules cards aborted, loading JSON:', err);
+      isPostgresOperational = false;
+      return localStore.flashcards.filter((f: any) => f.userId === userId && f.nextReviewDate <= todayStr) as Flashcard[];
+    }
   },
 
   async getFlashcardStats(userId: string): Promise<{ totalCards: number; averageRetention: number; dueToday: number }> {
-    const results = await db.select().from(flashcards).where(eq(flashcards.userId, userId));
-    const count = results.length;
-    const sumScore = results.reduce((sum, f) => sum + (f.memoryScore || 80), 0);
+    const results = await this.getFlashcards(userId, ''); // Fallback behavior for entire user profiles
+    const allUserCards = localStore.flashcards.filter((f: any) => f.userId === userId);
+    
+    // Utilize high accuracy counting
+    const activeCards = isPostgresOperational ? results : allUserCards;
+    const count = activeCards.length;
+    const sumScore = activeCards.reduce((sum, f) => sum + (f.memoryScore || 80), 0);
     const due = await this.getAllFlashcardsDue(userId);
+
     return {
       totalCards: count,
       averageRetention: count > 0 ? Math.round(sumScore / count) : 85,
@@ -462,8 +941,6 @@ export const DB = {
   },
 
   async createFlashcards(userId: string, materialId: string, cards: Omit<Flashcard, 'id' | 'userId' | 'materialId' | 'isFavorite' | 'reviewCount' | 'memoryScore' | 'easeFactor' | 'intervalDays' | 'nextReviewDate' | 'createdAt'>[]): Promise<Flashcard[]> {
-    await db.delete(flashcards).where(and(eq(flashcards.userId, userId), eq(flashcards.materialId, materialId)));
-
     const insertCards: any[] = cards.map(c => ({
       ...c,
       id: 'fc_' + Math.random().toString(36).substr(2, 9),
@@ -478,9 +955,21 @@ export const DB = {
       createdAt: new Date().toISOString()
     }));
 
-    if (insertCards.length > 0) {
-      await db.insert(flashcards).values(insertCards);
+    if (isPostgresOperational) {
+      try {
+        await db.delete(flashcards).where(and(eq(flashcards.userId, userId), eq(flashcards.materialId, materialId)));
+        if (insertCards.length > 0) {
+          await db.insert(flashcards).values(insertCards);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL write flashcards failed, loading JSON layer:', err);
+        isPostgresOperational = false;
+      }
     }
+
+    localStore.flashcards = localStore.flashcards.filter((f: any) => !(f.userId === userId && f.materialId === materialId));
+    localStore.flashcards.push(...insertCards);
+    saveLocalStore();
 
     await this.addHistory(userId, materialId, 'Flashcard', `Sourced ${insertCards.length} srs learning flashcards`);
     await this.addXP(userId, 20);
@@ -489,12 +978,13 @@ export const DB = {
   },
 
   async updateFlashcardSRS(id: string, memoryScore: number, difficulty: FlashcardDifficulty): Promise<Flashcard> {
-    const results = await db.select().from(flashcards).where(eq(flashcards.id, id));
-    if (results.length === 0) throw new Error('Flashcard not found');
+    const idx = localStore.flashcards.findIndex((f: any) => f.id === id);
+    if (idx === -1 && !isPostgresOperational) throw new Error('Flashcard not found');
 
-    const fc = results[0];
+    const fc = isPostgresOperational ? (await db.select().from(flashcards).where(eq(flashcards.id, id)))[0] : localStore.flashcards[idx];
+    if (!fc) throw new Error('Flashcard not resolved');
+
     const newReviewCount = fc.reviewCount + 1;
-    
     let nextIntervalDays = 1;
     if (difficulty === 'easy') {
       if (fc.intervalDays === 1) nextIntervalDays = 3;
@@ -518,46 +1008,111 @@ export const DB = {
       nextReviewDate
     };
 
-    await db.update(flashcards).set(updates).where(eq(flashcards.id, id));
-    
-    const reFetched = await db.select().from(flashcards).where(eq(flashcards.id, id));
-    await this.addXP(fc.userId, 5);
+    if (isPostgresOperational) {
+      try {
+        await db.update(flashcards).set(updates).where(eq(flashcards.id, id));
+      } catch (err) {
+        console.warn('PostgreSQL update flashcard failed, updating local copy:', err);
+        isPostgresOperational = false;
+      }
+    }
 
-    return reFetched[0] as Flashcard;
+    if (idx !== -1) {
+      localStore.flashcards[idx] = {
+        ...localStore.flashcards[idx],
+        ...updates
+      };
+      saveLocalStore();
+    }
+
+    await this.addXP(fc.userId, 5);
+    return isPostgresOperational ? (await db.select().from(flashcards).where(eq(flashcards.id, id)))[0] as Flashcard : localStore.flashcards[idx];
   },
 
   async toggleFlashcardFavorite(id: string): Promise<Flashcard> {
-    const results = await db.select().from(flashcards).where(eq(flashcards.id, id));
-    if (results.length === 0) throw new Error('Flashcard not found');
+    const idx = localStore.flashcards.findIndex((f: any) => f.id === id);
+    if (idx === -1 && !isPostgresOperational) throw new Error('Flashcard not found');
 
-    await db.update(flashcards).set({ isFavorite: !results[0].isFavorite }).where(eq(flashcards.id, id));
-    
-    const reFetched = await db.select().from(flashcards).where(eq(flashcards.id, id));
-    return reFetched[0] as Flashcard;
+    const fc = isPostgresOperational ? (await db.select().from(flashcards).where(eq(flashcards.id, id)))[0] : localStore.flashcards[idx];
+    if (!fc) throw new Error('Flashcard not resolved');
+
+    const nextFav = !fc.isFavorite;
+
+    if (isPostgresOperational) {
+      try {
+        await db.update(flashcards).set({ isFavorite: nextFav }).where(eq(flashcards.id, id));
+      } catch (err) {
+        console.warn('PostgreSQL toggle favorite failed, updating local Copy:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    if (idx !== -1) {
+      localStore.flashcards[idx].isFavorite = nextFav;
+      saveLocalStore();
+    }
+
+    return isPostgresOperational ? (await db.select().from(flashcards).where(eq(flashcards.id, id)))[0] as Flashcard : localStore.flashcards[idx];
   },
 
   // PRACTICE QUIZZES & RESULTS
   async getQuizForMaterial(userId: string, materialId: string): Promise<Quiz | null> {
-    const results = await db.select().from(quizzes).where(and(eq(quizzes.userId, userId), eq(quizzes.materialId, materialId)));
-    if (results.length === 0) return null;
-    return {
-      ...results[0],
-      questions: JSON.parse(results[0].questions)
-    } as unknown as Quiz;
+    if (!isPostgresOperational) {
+      const q = localStore.quizzes.find((qz: any) => qz.userId === userId && qz.materialId === materialId);
+      if (!q) return null;
+      return {
+        ...q,
+        questions: typeof q.questions === 'string' ? JSON.parse(q.questions) : q.questions
+      } as unknown as Quiz;
+    }
+    try {
+      const results = await db.select().from(quizzes).where(and(eq(quizzes.userId, userId), eq(quizzes.materialId, materialId)));
+      if (results.length === 0) return null;
+      return {
+        ...results[0],
+        questions: JSON.parse(results[0].questions)
+      } as unknown as Quiz;
+    } catch (err) {
+      console.warn('PostgreSQL loading quiz failed, trying JSON backup:', err);
+      isPostgresOperational = false;
+      const q = localStore.quizzes.find((qz: any) => qz.userId === userId && qz.materialId === materialId);
+      if (!q) return null;
+      return {
+        ...q,
+        questions: typeof q.questions === 'string' ? JSON.parse(q.questions) : q.questions
+      } as unknown as Quiz;
+    }
   },
 
   async getQuizById(quizId: string): Promise<Quiz | null> {
-    const results = await db.select().from(quizzes).where(eq(quizzes.id, quizId));
-    if (results.length === 0) return null;
-    return {
-      ...results[0],
-      questions: JSON.parse(results[0].questions)
-    } as unknown as Quiz;
+    if (!isPostgresOperational) {
+      const q = localStore.quizzes.find((qz: any) => qz.id === quizId);
+      if (!q) return null;
+      return {
+        ...q,
+        questions: typeof q.questions === 'string' ? JSON.parse(q.questions) : q.questions
+      } as unknown as Quiz;
+    }
+    try {
+      const results = await db.select().from(quizzes).where(eq(quizzes.id, quizId));
+      if (results.length === 0) return null;
+      return {
+        ...results[0],
+        questions: JSON.parse(results[0].questions)
+      } as unknown as Quiz;
+    } catch (err) {
+      console.warn('PostgreSQL select quiz id aborted, loading JSON:', err);
+      isPostgresOperational = false;
+      const q = localStore.quizzes.find((qz: any) => qz.id === quizId);
+      if (!q) return null;
+      return {
+        ...q,
+        questions: typeof q.questions === 'string' ? JSON.parse(q.questions) : q.questions
+      } as unknown as Quiz;
+    }
   },
 
   async createQuiz(userId: string, materialId: string, title: string, questions: QuizQuestion[]): Promise<Quiz> {
-    await db.delete(quizzes).where(and(eq(quizzes.userId, userId), eq(quizzes.materialId, materialId)));
-    
     const id = 'qz_' + Math.random().toString(36).substr(2, 9);
     const newQuiz = {
       id,
@@ -567,7 +1122,20 @@ export const DB = {
       questions: JSON.stringify(questions),
       createdAt: new Date().toISOString()
     };
-    await db.insert(quizzes).values(newQuiz);
+
+    if (isPostgresOperational) {
+      try {
+        await db.delete(quizzes).where(and(eq(quizzes.userId, userId), eq(quizzes.materialId, materialId)));
+        await db.insert(quizzes).values(newQuiz);
+      } catch (err) {
+        console.warn('PostgreSQL create quiz failed, writing in memory:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    localStore.quizzes = localStore.quizzes.filter((q: any) => !(q.userId === userId && q.materialId === materialId));
+    localStore.quizzes.push(newQuiz);
+    saveLocalStore();
 
     return {
       ...newQuiz,
@@ -576,11 +1144,30 @@ export const DB = {
   },
 
   async getQuizResults(userId: string): Promise<QuizResult[]> {
-    const results = await db.select().from(quizResults).where(eq(quizResults.userId, userId));
-    return results.map(row => ({
-      ...row,
-      wrongAnswersReview: JSON.parse(row.wrongAnswersReview)
-    })) as unknown as QuizResult[];
+    if (!isPostgresOperational) {
+      return localStore.quizResults
+        .filter((q: any) => q.userId === userId)
+        .map((row: any) => ({
+          ...row,
+          wrongAnswersReview: typeof row.wrongAnswersReview === 'string' ? JSON.parse(row.wrongAnswersReview) : row.wrongAnswersReview
+        })) as unknown as QuizResult[];
+    }
+    try {
+      const results = await db.select().from(quizResults).where(eq(quizResults.userId, userId));
+      return results.map(row => ({
+        ...row,
+        wrongAnswersReview: JSON.parse(row.wrongAnswersReview)
+      })) as unknown as QuizResult[];
+    } catch (err) {
+      console.warn('PostgreSQL load results failed, grabbing local JSON history:', err);
+      isPostgresOperational = false;
+      return localStore.quizResults
+        .filter((q: any) => q.userId === userId)
+        .map((row: any) => ({
+          ...row,
+          wrongAnswersReview: typeof row.wrongAnswersReview === 'string' ? JSON.parse(row.wrongAnswersReview) : row.wrongAnswersReview
+        })) as unknown as QuizResult[];
+    }
   },
 
   async saveQuizResult(userId: string, quizId: string, score: number, totalQuestions: number, correctAnswersCount: number, wrongAnswersReview: any[]): Promise<QuizResult> {
@@ -596,11 +1183,22 @@ export const DB = {
       wrongAnswersReview: JSON.stringify(wrongAnswersReview),
       completedAt: new Date().toISOString()
     };
-    await db.insert(quizResults).values(newResult);
 
-    const quizRecordResult = await db.select().from(quizzes).where(eq(quizzes.id, quizId));
-    const materialId = quizRecordResult[0] ? quizRecordResult[0].materialId : '';
-    const quizTitle = quizRecordResult[0] ? quizRecordResult[0].title : 'Practice Quiz';
+    if (isPostgresOperational) {
+      try {
+        await db.insert(quizResults).values(newResult);
+      } catch (err) {
+        console.warn('PostgreSQL save score failed, recording on JSON tier:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    localStore.quizResults.push(newResult);
+    saveLocalStore();
+
+    const quizRecord = await this.getQuizById(quizId);
+    const materialId = quizRecord ? quizRecord.materialId : '';
+    const quizTitle = quizRecord ? quizRecord.title : 'Practice Quiz';
     
     await this.addHistory(userId, materialId, 'Quiz', `Completed Quiz "${quizTitle}" with score ${score}%`, { score });
     await this.addXP(userId, 30);
@@ -617,14 +1215,31 @@ export const DB = {
 
   // AI TUTOR CHATS
   async getTutorChats(userId: string, materialId: string): Promise<TutorChat> {
-    const results = await db.select().from(tutorChats).where(and(eq(tutorChats.userId, userId), eq(tutorChats.materialId, materialId)));
-    if (results.length > 0) {
-      return {
-        ...results[0],
-        conversation: JSON.parse(results[0].conversation)
-      } as unknown as TutorChat;
+    if (!isPostgresOperational) {
+      const idx = localStore.tutorChats.findIndex((ch: any) => ch.userId === userId && ch.materialId === materialId);
+      if (idx !== -1) {
+        const c = localStore.tutorChats[idx];
+        return {
+          ...c,
+          conversation: typeof c.conversation === 'string' ? JSON.parse(c.conversation) : c.conversation
+        } as unknown as TutorChat;
+      }
+    } else {
+      try {
+        const results = await db.select().from(tutorChats).where(and(eq(tutorChats.userId, userId), eq(tutorChats.materialId, materialId)));
+        if (results.length > 0) {
+          return {
+            ...results[0],
+            conversation: JSON.parse(results[0].conversation)
+          } as unknown as TutorChat;
+        }
+      } catch (err) {
+        console.warn('PostgreSQL load chats failed, opening local session:', err);
+        isPostgresOperational = false;
+      }
     }
 
+    // Default initialization Socratic greeting
     const id = 'tc_' + Math.random().toString(36).substr(2, 9);
     const initialTutorChat = {
       id,
@@ -640,7 +1255,17 @@ export const DB = {
       ]),
       createdAt: new Date().toISOString()
     };
-    await db.insert(tutorChats).values(initialTutorChat);
+
+    if (isPostgresOperational) {
+      try {
+        await db.insert(tutorChats).values(initialTutorChat);
+      } catch (e) {
+        isPostgresOperational = false;
+      }
+    }
+
+    localStore.tutorChats.push(initialTutorChat);
+    saveLocalStore();
 
     return {
       ...initialTutorChat,
@@ -649,18 +1274,9 @@ export const DB = {
   },
 
   async addTutorChatMessage(userId: string, materialId: string, sender: 'user' | 'tutor', text: string): Promise<TutorChat> {
-    const results = await db.select().from(tutorChats).where(and(eq(tutorChats.userId, userId), eq(tutorChats.materialId, materialId)));
-    
-    let currentConversation: any[] = [];
-    let recordId = '';
-
-    if (results.length === 0) {
-      recordId = 'tc_' + Math.random().toString(36).substr(2, 9);
-      currentConversation = [];
-    } else {
-      recordId = results[0].id;
-      currentConversation = JSON.parse(results[0].conversation);
-    }
+    const activeChats = await this.getTutorChats(userId, materialId);
+    let currentConversation = activeChats.conversation || [];
+    let recordId = activeChats.id;
 
     const newMessage = {
       id: 'msg_' + Math.random().toString(36).substr(2, 9),
@@ -671,19 +1287,30 @@ export const DB = {
 
     currentConversation.push(newMessage);
 
-    if (results.length === 0) {
-      await db.insert(tutorChats).values({
+    if (isPostgresOperational) {
+      try {
+        await db.update(tutorChats).set({
+          conversation: JSON.stringify(currentConversation)
+        }).where(eq(tutorChats.id, recordId));
+      } catch (err) {
+        console.warn('PostgreSQL update tutor chat message failed, updating localized copy:', err);
+        isPostgresOperational = false;
+      }
+    }
+
+    const idx = localStore.tutorChats.findIndex((ch: any) => ch.id === recordId);
+    if (idx !== -1) {
+      localStore.tutorChats[idx].conversation = JSON.stringify(currentConversation);
+    } else {
+      localStore.tutorChats.push({
         id: recordId,
         userId,
         materialId,
         conversation: JSON.stringify(currentConversation),
         createdAt: new Date().toISOString()
       });
-    } else {
-      await db.update(tutorChats).set({
-        conversation: JSON.stringify(currentConversation)
-      }).where(eq(tutorChats.id, recordId));
     }
+    saveLocalStore();
 
     if (sender === 'user' && currentConversation.filter(m => m.sender === 'user').length === 1) {
       await this.addHistory(userId, materialId, 'TutorChat', 'Consulted with AI tutor');
@@ -695,19 +1322,16 @@ export const DB = {
       userId,
       materialId,
       conversation: currentConversation,
-      createdAt: results[0] ? results[0].createdAt : new Date().toISOString()
+      createdAt: activeChats.createdAt || new Date().toISOString()
     } as unknown as TutorChat;
   },
 
   // ADMIN ANALYTICS & STATS
   async getSystemAnalytics() {
-    const [userProfiles, mats, histories, results] = await Promise.all([
-      db.select().from(users),
-      db.select().from(materials),
-      db.select().from(learningHistory),
-      db.select().from(quizResults)
-    ]);
-
+    const userProfiles = await this.getAllUsers();
+    const mats = localStore.materials;
+    const histories = localStore.learningHistory;
+    const results = localStore.quizResults;
     const totalXP = userProfiles.reduce((sum, u) => sum + (u.xp || 0), 0);
 
     return {
@@ -736,6 +1360,10 @@ export const DB = {
 
 // Seed databases if empty async worker on load
 export async function initDB() {
+  if (!isPostgresOperational) {
+    console.log('PostgreSQL is not operational or unconfigured. StudyMind is executing on active Local JSON store /tmp.');
+    return;
+  }
   try {
     const existingUsers = await db.select().from(users).limit(1);
     if (existingUsers.length === 0) {
@@ -827,9 +1455,11 @@ export async function initDB() {
           createdAt: new Date('2026-06-01T12:10:00Z').toISOString()
         }
       ]);
+      console.log('PostgreSQL database seeded successfully with initial values!');
     }
   } catch (err) {
-    console.warn('DB seeding warning:', err);
+    console.warn('DB seeding warning (PostgreSQL tables may not exist yet, falling back to JSON schema):', err);
+    isPostgresOperational = false;
   }
 }
 
