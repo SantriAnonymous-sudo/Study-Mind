@@ -28,17 +28,22 @@ function getUserIdFromRequest(req: Request): string | null {
 }
 
 // Auth Middleware
-function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const userId = getUserIdFromRequest(req);
-  if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized access. Please register or log in first.' });
+async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized access. Please register or log in first.' });
+    }
+    const user = await DB.getUserByUid(userId);
+    if (!user) {
+      return res.status(401).json({ error: 'Session expired or user profile invalid.' });
+    }
+    req.body = req.body || {}; // Safety guard against undefined body during GET requests
+    req.body.authenticatedUserId = userId;
+    next();
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
-  const user = DB.getUserByUid(userId);
-  if (!user) {
-    return res.status(401).json({ error: 'Session expired or user profile invalid.' });
-  }
-  req.body.authenticatedUserId = userId;
-  next();
 }
 
 // Lazy-loaded Gemini AI client helper with aistudio-build telemetry headers
@@ -65,7 +70,7 @@ function getAI() {
 // AUTH SYSTEM API ENDPOINTS
 // =====================================
 
-app.post('/api/auth/register', (req: Request, res: Response) => {
+app.post('/api/auth/register', async (req: Request, res: Response) => {
   try {
     const { fullName, email, password, confirmPassword, role } = req.body;
     
@@ -76,7 +81,7 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Passwords do not match.' });
     }
 
-    const existingUser = DB.getUserByEmail(email);
+    const existingUser = await DB.getUserByEmail(email);
     if (existingUser) {
       return res.status(400).json({ error: 'An account with this email already exists.' });
     }
@@ -84,21 +89,21 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
     const passwordHash = hashPassword(password);
     const assignedRole = (role === 'admin' || email.toLowerCase() === 'akang.munggiz.07@gmail.com') ? 'admin' : 'student';
     
-    const user = DB.createUser(fullName, email, passwordHash, assignedRole);
+    const user = await DB.createUser(fullName, email, passwordHash, assignedRole);
     res.status(201).json({ message: 'Registration successful!', user });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/auth/login', (req: Request, res: Response) => {
+app.post('/api/auth/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required.' });
     }
 
-    const userRecord = DB.getUserByEmail(email);
+    const userRecord = await DB.getUserByEmail(email);
     if (!userRecord) {
       return res.status(401).json({ error: 'No account registered with this email address.' });
     }
@@ -112,8 +117,8 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
     const { passwordHash, ...safeProfile } = userRecord;
     
     // Register streak progression check
-    DB.updateStreak(safeProfile.uid);
-    const updatedProfile = DB.getUserByUid(safeProfile.uid);
+    await DB.updateStreak(safeProfile.uid);
+    const updatedProfile = await DB.getUserByUid(safeProfile.uid);
 
     res.json({ message: 'Authentication successful!', user: updatedProfile });
   } catch (error: any) {
@@ -121,28 +126,28 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/auth/google-sso', (req: Request, res: Response) => {
+app.post('/api/auth/google-sso', async (req: Request, res: Response) => {
   try {
     const { fullName, email } = req.body;
     if (!email) {
       return res.status(400).json({ error: 'Email parameter is compulsory.' });
     }
 
-    let userRecord = DB.getUserByEmail(email);
+    let userRecord = await DB.getUserByEmail(email);
     if (!userRecord) {
       const randomPass = Math.random().toString(36).substring(2) + '_sso';
       const passwordHash = hashPassword(randomPass);
       const assignedRole = (email.toLowerCase() === 'akang.munggiz.07@gmail.com') ? 'admin' : 'student';
       // Create user
-      const createdUser = DB.createUser(fullName || 'Google Scholar', email, passwordHash, assignedRole);
+      const createdUser = await DB.createUser(fullName || 'Google Scholar', email, passwordHash, assignedRole);
       // Retrieve direct record
-      userRecord = DB.getUserByEmail(email);
+      userRecord = await DB.getUserByEmail(email);
     }
 
     // Exclude password hash from profile
     const { passwordHash, ...safeProfile } = userRecord;
-    DB.updateStreak(safeProfile.uid);
-    const updatedProfile = DB.getUserByUid(safeProfile.uid);
+    await DB.updateStreak(safeProfile.uid);
+    const updatedProfile = await DB.getUserByUid(safeProfile.uid);
 
     res.json({ message: 'Google Authentication linked successfully!', user: updatedProfile });
   } catch (error: any) {
@@ -150,20 +155,20 @@ app.post('/api/auth/google-sso', (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/auth/me', requireAuth, (req: Request, res: Response) => {
+app.get('/api/auth/me', requireAuth, async (req: Request, res: Response) => {
   const userId = req.body.authenticatedUserId;
-  const user = DB.getUserByUid(userId);
+  const user = await DB.getUserByUid(userId);
   if (!user) {
     return res.status(404).json({ error: 'User profiles could not be resolved.' });
   }
   res.json({ user });
 });
 
-app.post('/api/auth/profile', requireAuth, (req: Request, res: Response) => {
+app.post('/api/auth/profile', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.body.authenticatedUserId;
     const { fullName, email, profilePhoto, brainModel, brainPersona, brainLanguage, brainCreativity, brainCustomRules } = req.body;
-    const updated = DB.updateUserProfile(userId, { 
+    const updated = await DB.updateUserProfile(userId, { 
       fullName, 
       email, 
       profilePhoto,
@@ -179,29 +184,29 @@ app.post('/api/auth/profile', requireAuth, (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/auth/forgot-password', (req: Request, res: Response) => {
+app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'Please enter a valid email address.' });
   }
-  const user = DB.getUserByEmail(email);
+  const user = await DB.getUserByEmail(email);
   if (!user) {
     return res.status(404).json({ error: 'No registered user is associated with this email.' });
   }
   res.json({ message: 'A secure password reset link has been successfully generated and dispatched to your email address.' });
 });
 
-app.post('/api/auth/reset-password', (req: Request, res: Response) => {
+app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
   const { email, newPassword } = req.body;
   if (!email || !newPassword) {
     return res.status(400).json({ error: 'Email and new password are required.' });
   }
-  const user = DB.getUserByEmail(email);
+  const user = await DB.getUserByEmail(email);
   if (!user) {
     return res.status(404).json({ error: 'User does not exist.' });
   }
   const passwordHash = hashPassword(newPassword);
-  DB.updateUserProfile(user.uid, { passwordHash } as any);
+  await DB.updateUserProfile(user.uid, { passwordHash } as any);
   res.json({ message: 'Password has been updated. You can now log in securely.' });
 });
 
@@ -210,13 +215,13 @@ app.post('/api/auth/verify-email', (req: Request, res: Response) => {
 });
 
 // Download Personal Data
-app.get('/api/auth/download-data', requireAuth, (req: Request, res: Response) => {
+app.get('/api/auth/download-data', requireAuth, async (req: Request, res: Response) => {
   const userId = req.body.authenticatedUserId;
-  const user = DB.getUserByUid(userId);
-  const subjects = DB.getSubjects(userId);
-  const materials = DB.getMaterials(userId);
-  const history = DB.getLearningHistory(userId);
-  const quizResults = DB.getQuizResults(userId);
+  const user = await DB.getUserByUid(userId);
+  const subjects = await DB.getSubjects(userId);
+  const materials = await DB.getMaterials(userId);
+  const history = await DB.getLearningHistory(userId);
+  const quizResults = await DB.getQuizResults(userId);
 
   const payload = {
     userProfile: user,
@@ -234,9 +239,9 @@ app.get('/api/auth/download-data', requireAuth, (req: Request, res: Response) =>
 });
 
 // Admin command: Delete current account
-app.delete('/api/auth/account', requireAuth, (req: Request, res: Response) => {
+app.delete('/api/auth/account', requireAuth, async (req: Request, res: Response) => {
   const userId = req.body.authenticatedUserId;
-  DB.deleteUser(userId);
+  await DB.deleteUser(userId);
   res.json({ success: true, message: 'Your account and database records have been deleted.' });
 });
 
@@ -245,18 +250,18 @@ app.delete('/api/auth/account', requireAuth, (req: Request, res: Response) => {
 // SUBJECT MANAGEMENT
 // =====================================
 
-app.get('/api/subjects', requireAuth, (req: Request, res: Response) => {
+app.get('/api/subjects', requireAuth, async (req: Request, res: Response) => {
   const userId = req.body.authenticatedUserId;
-  res.json({ subjects: DB.getSubjects(userId) });
+  res.json({ subjects: await DB.getSubjects(userId) });
 });
 
-app.post('/api/subjects', requireAuth, (req: Request, res: Response) => {
+app.post('/api/subjects', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.body.authenticatedUserId;
     const { name, icon, color, description } = req.body;
     if (!name) return res.status(400).json({ error: 'Subject designation title is mandatory.' });
     
-    const sub = DB.createSubject(userId, name, icon || 'BookOpen', color || '#2563EB', description || '');
+    const sub = await DB.createSubject(userId, name, icon || 'BookOpen', color || '#2563EB', description || '');
     res.status(201).json({ message: 'Subject created.', subject: sub });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -268,12 +273,12 @@ app.post('/api/subjects', requireAuth, (req: Request, res: Response) => {
 // MATERIAL STORAGE
 // =====================================
 
-app.get('/api/materials', requireAuth, (req: Request, res: Response) => {
+app.get('/api/materials', requireAuth, async (req: Request, res: Response) => {
   const userId = req.body.authenticatedUserId;
-  res.json({ materials: DB.getMaterials(userId) });
+  res.json({ materials: await DB.getMaterials(userId) });
 });
 
-app.post('/api/materials', requireAuth, (req: Request, res: Response) => {
+app.post('/api/materials', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.body.authenticatedUserId;
     const { subjectId, title, description, content, type, size, fileUrl } = req.body;
@@ -282,7 +287,7 @@ app.post('/api/materials', requireAuth, (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Subject category link, title designation, and raw content are mandatory.' });
     }
 
-    const materialObj = DB.createMaterial(userId, {
+    const materialObj = await DB.createMaterial(userId, {
       subjectId,
       title,
       description: description || '',
@@ -298,21 +303,21 @@ app.post('/api/materials', requireAuth, (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/materials/:id', requireAuth, (req: Request, res: Response) => {
+app.put('/api/materials/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { isFavorite, isArchived, title, description, content } = req.body;
-    const updated = DB.updateMaterial(id, { isFavorite, isArchived, title, description, content });
+    const updated = await DB.updateMaterial(id, { isFavorite, isArchived, title, description, content });
     res.json({ message: 'Resource status successfully updated.', material: updated });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.delete('/api/materials/:id', requireAuth, (req: Request, res: Response) => {
+app.delete('/api/materials/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const success = DB.deleteMaterial(id);
+    const success = await DB.deleteMaterial(id);
     if (!success) {
       return res.status(404).json({ error: 'The requested resource element could not be found.' });
     }
@@ -327,9 +332,9 @@ app.delete('/api/materials/:id', requireAuth, (req: Request, res: Response) => {
 // LEARNING HISTORY
 // =====================================
 
-app.get('/api/history', requireAuth, (req: Request, res: Response) => {
+app.get('/api/history', requireAuth, async (req: Request, res: Response) => {
   const userId = req.body.authenticatedUserId;
-  res.json({ history: DB.getLearningHistory(userId) });
+  res.json({ history: await DB.getLearningHistory(userId) });
 });
 
 
@@ -337,30 +342,30 @@ app.get('/api/history', requireAuth, (req: Request, res: Response) => {
 // FLASHCARDS & SRS (SPACED REPETITION)
 // =====================================
 
-app.get('/api/flashcards', requireAuth, (req: Request, res: Response) => {
+app.get('/api/flashcards', requireAuth, async (req: Request, res: Response) => {
   const userId = req.body.authenticatedUserId;
   res.json({ 
-    flashcards: DB.getFlashcards(userId, req.query.materialId as string || ''),
-    dueToday: DB.getAllFlashcardsDue(userId),
-    stats: DB.getFlashcardStats(userId)
+    flashcards: await DB.getFlashcards(userId, req.query.materialId as string || ''),
+    dueToday: await DB.getAllFlashcardsDue(userId),
+    stats: await DB.getFlashcardStats(userId)
   });
 });
 
-app.put('/api/flashcards/:id', requireAuth, (req: Request, res: Response) => {
+app.put('/api/flashcards/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { memoryScore, difficulty } = req.body; // difficulty: easy, medium, hard
-    const updated = DB.updateFlashcardSRS(id, memoryScore || 80, difficulty || 'medium');
+    const updated = await DB.updateFlashcardSRS(id, memoryScore || 80, difficulty || 'medium');
     res.json({ message: 'Spaced repetition metrics synchronised successfully.', card: updated });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.put('/api/flashcards/:id/favorite', requireAuth, (req: Request, res: Response) => {
+app.put('/api/flashcards/:id/favorite', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const updated = DB.toggleFlashcardFavorite(id);
+    const updated = await DB.toggleFlashcardFavorite(id);
     res.json({ card: updated });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -382,17 +387,17 @@ app.post('/api/ai/summary', requireAuth, async (req: Request, res: Response) => 
       return res.status(400).json({ error: 'Resource index and summary length are required.' });
     }
 
-    const materialList = DB.getMaterials(userId);
+    const materialList = await DB.getMaterials(userId);
     const mat = materialList.find(m => m.id === materialId);
     if (!mat) return res.status(404).json({ error: 'Material not resolved.' });
 
     // Retrieve previous cached summary if exists for performance
-    const previous = DB.getSummaries(userId, materialId).find(s => s.type === type);
+    const previous = (await DB.getSummaries(userId, materialId)).find(s => s.type === type);
     if (previous) {
       return res.json({ summary: previous });
     }
 
-    const user = DB.getUserByUid(userId);
+    const user = await DB.getUserByUid(userId);
     const model = user?.brainModel || 'gemini-3.5-flash';
     const language = user?.brainLanguage || 'Bahasa Indonesia';
     const customRules = user?.brainCustomRules || '';
@@ -417,7 +422,7 @@ ${mat.content}`;
     });
 
     const aiText = response.text || 'Failed to capture summarize parameters.';
-    const savedSum = DB.createSummary(userId, materialId, type as SummaryLength, aiText);
+    const savedSum = await DB.createSummary(userId, materialId, type as SummaryLength, aiText);
 
     res.json({ summary: savedSum });
   } catch (error: any) {
@@ -436,16 +441,16 @@ app.post('/api/ai/explanation', requireAuth, async (req: Request, res: Response)
       return res.status(400).json({ error: 'Material referent identifier and explanation level are mandatory.' });
     }
 
-    const materialList = DB.getMaterials(userId);
+    const materialList = await DB.getMaterials(userId);
     const mat = materialList.find(m => m.id === materialId);
     if (!mat) return res.status(404).json({ error: 'Material not resolved.' });
 
-    const previous = DB.getExplanations(userId, materialId).find(e => e.difficulty === difficulty);
+    const previous = (await DB.getExplanations(userId, materialId)).find(e => e.difficulty === difficulty);
     if (previous) {
       return res.json({ explanation: previous });
     }
 
-    const user = DB.getUserByUid(userId);
+    const user = await DB.getUserByUid(userId);
     const model = user?.brainModel || 'gemini-3.5-flash';
     const language = user?.brainLanguage || 'Bahasa Indonesia';
     const customRules = user?.brainCustomRules || '';
@@ -469,7 +474,7 @@ ${mat.content}`;
     });
 
     const aiText = response.text || `Could not resolve explanation block for ${difficulty} level.`;
-    const savedExp = DB.createExplanation(userId, materialId, difficulty as ExplanationDifficulty, aiText);
+    const savedExp = await DB.createExplanation(userId, materialId, difficulty as ExplanationDifficulty, aiText);
 
     res.json({ explanation: savedExp });
   } catch (error: any) {
@@ -488,16 +493,16 @@ app.post('/api/ai/mindmap', requireAuth, async (req: Request, res: Response) => 
       return res.status(400).json({ error: 'Material key is required.' });
     }
 
-    const materialList = DB.getMaterials(userId);
+    const materialList = await DB.getMaterials(userId);
     const mat = materialList.find(m => m.id === materialId);
     if (!mat) return res.status(404).json({ error: 'Material not resolved.' });
 
-    const previous = DB.getMindMaps(userId, materialId);
+    const previous = await DB.getMindMaps(userId, materialId);
     if (previous.length > 0) {
       return res.json({ mindmap: previous[0] });
     }
 
-    const user = DB.getUserByUid(userId);
+    const user = await DB.getUserByUid(userId);
     const model = user?.brainModel || 'gemini-3.5-flash';
     const language = user?.brainLanguage || 'Bahasa Indonesia';
     const customRules = user?.brainCustomRules || '';
@@ -558,7 +563,7 @@ ${mat.content}`,
     });
 
     const rootData = JSON.parse(response.text.trim());
-    const mindmapObj = DB.createMindMap(userId, materialId, rootData);
+    const mindmapObj = await DB.createMindMap(userId, materialId, rootData);
 
     res.json({ mindmap: mindmapObj });
   } catch (error: any) {
@@ -577,16 +582,16 @@ app.post('/api/ai/flashcards', requireAuth, async (req: Request, res: Response) 
       return res.status(400).json({ error: 'Material context link is required.' });
     }
 
-    const materialList = DB.getMaterials(userId);
+    const materialList = await DB.getMaterials(userId);
     const mat = materialList.find(m => m.id === materialId);
     if (!mat) return res.status(404).json({ error: 'Material not resolved.' });
 
-    const previous = DB.getFlashcards(userId, materialId);
+    const previous = await DB.getFlashcards(userId, materialId);
     if (previous.length > 0) {
       return res.json({ flashcards: previous });
     }
 
-    const user = DB.getUserByUid(userId);
+    const user = await DB.getUserByUid(userId);
     const model = user?.brainModel || 'gemini-3.5-flash';
     const language = user?.brainLanguage || 'Bahasa Indonesia';
     const customRules = user?.brainCustomRules || '';
@@ -619,7 +624,7 @@ ${mat.content}`,
     });
 
     const rawCards = JSON.parse(response.text.trim());
-    const savedCards = DB.createFlashcards(userId, materialId, rawCards);
+    const savedCards = await DB.createFlashcards(userId, materialId, rawCards);
 
     res.json({ flashcards: savedCards });
   } catch (error: any) {
@@ -638,16 +643,16 @@ app.post('/api/ai/quiz', requireAuth, async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Material link is required.' });
     }
 
-    const materialList = DB.getMaterials(userId);
+    const materialList = await DB.getMaterials(userId);
     const mat = materialList.find(m => m.id === materialId);
     if (!mat) return res.status(404).json({ error: 'Material not resolved.' });
 
-    const existingQuiz = DB.getQuizForMaterial(userId, materialId);
+    const existingQuiz = await DB.getQuizForMaterial(userId, materialId);
     if (existingQuiz) {
       return res.json({ quiz: existingQuiz });
     }
 
-    const user = DB.getUserByUid(userId);
+    const user = await DB.getUserByUid(userId);
     const model = user?.brainModel || 'gemini-3.5-flash';
     const language = user?.brainLanguage || 'Bahasa Indonesia';
     const customRules = user?.brainCustomRules || '';
@@ -696,7 +701,7 @@ ${mat.content}`,
       id: `q_idx_${index}_` + Math.random().toString(36).substr(2, 5)
     }));
 
-    const quizObj = DB.createQuiz(userId, materialId, title || `Quiz - ${mat.title}`, formattedQuestions);
+    const quizObj = await DB.createQuiz(userId, materialId, title || `Quiz - ${mat.title}`, formattedQuestions);
     res.json({ quiz: quizObj });
   } catch (error: any) {
     console.error('Quiz Generation Error:', error);
@@ -715,8 +720,7 @@ app.post('/api/ai/quiz-results', requireAuth, async (req: Request, res: Response
     }
 
     // Retrieve the Quiz from database to check answers
-    const quizzes = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'quizzes.json'), 'utf-8')) as any[];
-    const quiz = quizzes.find(q => q.id === quizId);
+    const quiz = await DB.getQuizById(quizId);
     if (!quiz) return res.status(404).json({ error: 'Quiz definition could not be resolved.' });
 
     let correctCount = 0;
@@ -742,7 +746,7 @@ app.post('/api/ai/quiz-results', requireAuth, async (req: Request, res: Response
       } else if (q.type === 'essay') {
         // Evaluate essay using customization
         try {
-          const user = DB.getUserByUid(userId);
+          const user = await DB.getUserByUid(userId);
           const model = user?.brainModel || 'gemini-3.5-flash';
           const language = user?.brainLanguage || 'Bahasa Indonesia';
 
@@ -804,7 +808,7 @@ Provide your feedback and grade strictly in JSON format. Return:
     }
 
     const finalPercentage = Math.round((correctCount / totalCount) * 100);
-    const resultObj = DB.saveQuizResult(userId, quizId, finalPercentage, totalCount, Math.round(correctCount), reviewPayload);
+    const resultObj = await DB.saveQuizResult(userId, quizId, finalPercentage, totalCount, Math.round(correctCount), reviewPayload);
 
     res.json({ result: resultObj });
   } catch (error: any) {
@@ -818,10 +822,10 @@ Provide your feedback and grade strictly in JSON format. Return:
 // AI TUTOR CHATS
 // =====================================
 
-app.get('/api/tutor/chat/:materialId', requireAuth, (req: Request, res: Response) => {
+app.get('/api/tutor/chat/:materialId', requireAuth, async (req: Request, res: Response) => {
   const userId = req.body.authenticatedUserId;
   const { materialId } = req.params;
-  const chatObj = DB.getTutorChats(userId, materialId);
+  const chatObj = await DB.getTutorChats(userId, materialId);
   res.json({ chat: chatObj });
 });
 
@@ -833,18 +837,18 @@ app.post('/api/tutor/chat/:materialId', requireAuth, async (req: Request, res: R
 
     if (!message) return res.status(400).json({ error: 'Message context is required.' });
 
-    const materialList = DB.getMaterials(userId);
+    const materialList = await DB.getMaterials(userId);
     const mat = materialList.find(m => m.id === materialId);
     if (!mat) return res.status(404).json({ error: 'Material not resolved.' });
 
     // Append the user query in database state
-    DB.addTutorChatMessage(userId, materialId, 'user', message);
+    await DB.addTutorChatMessage(userId, materialId, 'user', message);
 
     // Fetch refreshed conversation
-    const currentChat = DB.getTutorChats(userId, materialId);
+    const currentChat = await DB.getTutorChats(userId, materialId);
     const lastSixTurns = currentChat.conversation.slice(-8);
 
-    const user = DB.getUserByUid(userId);
+    const user = await DB.getUserByUid(userId);
     const model = user?.brainModel || 'gemini-3.5-flash';
     const persona = user?.brainPersona || 'Socratic Mentor';
     const language = user?.brainLanguage || 'Bahasa Indonesia';
@@ -884,7 +888,7 @@ Provide your academic tutor response directly in Markdown format:`;
     const aiAnswerText = response.text || 'I was unable to synthesize a response at this time. Please prompt again.';
     
     // Save AI tutor turn to DB
-    const finalChat = DB.addTutorChatMessage(userId, materialId, 'tutor', aiAnswerText);
+    const finalChat = await DB.addTutorChatMessage(userId, materialId, 'tutor', aiAnswerText);
 
     res.json({ chat: finalChat });
   } catch (error: any) {
@@ -899,42 +903,47 @@ Provide your academic tutor response directly in Markdown format:`;
 // =====================================
 
 // Check role: admin
-function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  const userId = getUserIdFromRequest(req);
-  if (!userId) return res.status(401).json({ error: 'Unauthorized.' });
-  const user = DB.getUserByUid(userId);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Forbidden. Accessible only by authorized administrators.' });
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized.' });
+    const user = await DB.getUserByUid(userId);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden. Accessible only by authorized administrators.' });
+    }
+    req.body = req.body || {};
+    req.body.authenticatedUserId = userId;
+    next();
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
-  req.body.authenticatedUserId = userId;
-  next();
 }
 
-app.get('/api/admin/analytics', requireAuth, requireAdmin, (req: Request, res: Response) => {
+app.get('/api/admin/analytics', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   try {
-    const stats = DB.getSystemAnalytics();
+    const stats = await DB.getSystemAnalytics();
     res.json({ stats });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get('/api/admin/users', requireAuth, requireAdmin, (req: Request, res: Response) => {
+app.get('/api/admin/users', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   try {
-    const users = DB.getAllUsers();
+    const users = await DB.getAllUsers();
     res.json({ users });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.delete('/api/admin/users/:uid', requireAuth, requireAdmin, (req: Request, res: Response) => {
+app.delete('/api/admin/users/:uid', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { uid } = req.params;
     if (uid === req.body.authenticatedUserId) {
       return res.status(400).json({ error: 'You are preventatively blocked from deleting your own live administrator account.' });
     }
-    const success = DB.deleteUser(uid);
+    const success = await DB.deleteUser(uid);
     if (!success) return res.status(404).json({ error: 'Target user could not be found.' });
     res.json({ message: 'User database directory has been thoroughly purged.' });
   } catch (error: any) {

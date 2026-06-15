@@ -20,6 +20,7 @@ export interface UserProfile {
   brainLanguage?: string;
   brainCreativity?: number;
   brainCustomRules?: string;
+  unlockedAchievements?: string[];
 }
 
 // Subject definition
